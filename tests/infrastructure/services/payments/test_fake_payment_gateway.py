@@ -1,3 +1,4 @@
+import asyncio
 import random
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -31,3 +32,34 @@ class FakePaymentGatewayTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_roll_at_or_above_success_rate_fails(self):
         self.assertIs(await self.charge(0.9), PaymentStatus.FAILED)
+
+    def instant_gateway(self, *rolls: float) -> FakePaymentGateway:
+        self.rng.uniform.return_value = 0
+        self.rng.random.side_effect = list(rolls)
+        return FakePaymentGateway(rng=self.rng)
+
+    async def test_repeated_charge_of_a_payment_returns_the_first_result_without_charging_again(self):
+        """A duplicate delivery of payments.new must not charge twice: the gateway is idempotent per payment.id."""
+        gateway = self.instant_gateway(0.0, 0.99)
+
+        first = await gateway.charge(self.payment)
+        second = await gateway.charge(self.payment)
+
+        self.assertIs(first, PaymentStatus.SUCCEEDED)
+        self.assertIs(second, PaymentStatus.SUCCEEDED)
+        self.rng.random.assert_called_once()
+
+    async def test_concurrent_charges_of_a_payment_share_one_charge(self):
+        gateway = self.instant_gateway(0.0, 0.99, 0.0, 0.99, 0.99)
+
+        results = await asyncio.gather(*(gateway.charge(self.payment) for _ in range(5)))
+
+        self.assertEqual(results, [PaymentStatus.SUCCEEDED] * 5)
+        self.rng.random.assert_called_once()
+
+    async def test_different_payments_are_charged_independently(self):
+        gateway = self.instant_gateway(0.0, 0.99)
+        other = Payment.build(payment_request(), "key-2")
+
+        self.assertIs(await gateway.charge(self.payment), PaymentStatus.SUCCEEDED)
+        self.assertIs(await gateway.charge(other), PaymentStatus.FAILED)

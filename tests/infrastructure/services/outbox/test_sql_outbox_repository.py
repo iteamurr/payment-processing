@@ -23,35 +23,48 @@ class SqlOutboxRepositoryTest(DatabaseTestCase):
             session.add_all(OutboxRow.from_event(event) for event in reversed(events))
         return events
 
-    async def test_yields_unpublished_oldest_first_and_marks_them_published(self):
+    async def pending(self, limit: int = 100) -> list[OutboxEvent]:
+        """Unpublished events as the next relay run would see them; marks nothing."""
+        async with self.outbox.lock_pending(limit) as batch:
+            return batch.events
+
+    async def test_yields_unpublished_oldest_first_and_publishes_the_marked_ones(self):
         events = await self.insert_events(3)
 
-        async with self.outbox.lock_pending(100) as locked:
-            self.assertEqual(locked, events)
+        async with self.outbox.lock_pending(100) as batch:
+            self.assertEqual(batch.events, events)
+            for event in batch.events:
+                batch.mark_published(event)
 
-        async with self.outbox.lock_pending(100) as locked:
-            self.assertEqual(locked, [])
+        self.assertEqual(await self.pending(), [])
 
-    async def test_exception_in_the_block_leaves_events_unpublished(self):
+    async def test_only_marked_events_are_published(self):
+        events = await self.insert_events(3)
+
+        async with self.outbox.lock_pending(100) as batch:
+            batch.mark_published(events[0])
+
+        self.assertEqual(await self.pending(), events[1:])
+
+    async def test_exception_in_the_block_publishes_nothing(self):
         events = await self.insert_events(2)
 
         with self.assertRaises(ConnectionError):
-            async with self.outbox.lock_pending(100):
+            async with self.outbox.lock_pending(100) as batch:
+                batch.mark_published(events[0])
                 raise ConnectionError("broker down")
 
-        async with self.outbox.lock_pending(100) as locked:
-            self.assertEqual(locked, events)
+        self.assertEqual(await self.pending(), events)
 
     async def test_limit(self):
         events = await self.insert_events(3)
 
-        async with self.outbox.lock_pending(2) as locked:
-            self.assertEqual(locked, events[:2])
+        self.assertEqual(await self.pending(limit=2), events[:2])
 
     async def test_locked_events_are_skipped_by_a_concurrent_relay(self):
         events = await self.insert_events(3)
 
         async with self.outbox.lock_pending(2) as first:
             async with self.outbox.lock_pending(100) as second:
-                self.assertEqual(first, events[:2])
-                self.assertEqual(second, events[2:])
+                self.assertEqual(first.events, events[:2])
+                self.assertEqual(second.events, events[2:])

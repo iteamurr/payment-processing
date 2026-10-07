@@ -9,7 +9,7 @@ from typing import Any
 
 from payments_processing.domain.entities.outbox_event import OutboxEvent
 from payments_processing.domain.entities.payment import Payment, PaymentRequest, PaymentStatus
-from payments_processing.domain.services.outbox.outbox_repository import OutboxRepository
+from payments_processing.domain.services.outbox.outbox_repository import OutboxBatch, OutboxRepository
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
 from payments_processing.domain.values.money import Currency, Money
 
@@ -56,15 +56,15 @@ class InMemoryPaymentRepository(PaymentRepository):
 
 
 class InMemoryOutboxRepository(OutboxRepository):
-    """Commit/rollback semantics of lock_pending: events move to `published` only if the block didn't raise."""
+    """Commit/rollback semantics of lock_pending: marked events move to `published` only if the block didn't raise."""
 
     def __init__(self, events: Iterable[OutboxEvent] = ()) -> None:
         self.pending: list[OutboxEvent] = list(events)
         self.published: list[OutboxEvent] = []
 
     @asynccontextmanager
-    async def lock_pending(self, limit: int) -> AsyncGenerator[list[OutboxEvent]]:
-        batch = self.pending[:limit]
-        yield list(batch)
-        self.pending = self.pending[len(batch) :]
-        self.published.extend(batch)
+    async def lock_pending(self, limit: int) -> AsyncGenerator[OutboxBatch]:
+        batch = OutboxBatch(self.pending[:limit])
+        yield batch
+        self.pending = [event for event in self.pending if event not in batch.published]
+        self.published.extend(batch.published)

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, create_autospec
 from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
-from payments_processing.domain.errors import WebhookDeliveryError
+from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 
 PAYMENT_ID = uuid.uuid4()
@@ -109,3 +109,25 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
 
         msg.reject.assert_awaited_once_with()
         msg.ack.assert_not_awaited()
+
+    async def test_unknown_payment_is_dead_lettered_without_retries(self):
+        """Retrying cannot make a missing payment appear: the outbox commits it before the event exists."""
+        self.processing.process.side_effect = PaymentNotFoundError("payment not found")
+        msg = message()
+
+        with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
+            await self.handler.handle(msg)
+
+        msg.reject.assert_awaited_once_with()
+        msg.ack.assert_not_awaited()
+        self.broker.publish.assert_not_awaited()
+
+    async def test_retry_copy_publish_is_bounded_by_a_timeout(self):
+        """A connection blocked by a RabbitMQ alarm would otherwise hang the handler and its prefetch slot."""
+        self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
+        handler = PaymentCreatedHandler(self.processing, self.broker, publish_timeout_s=2.5)
+
+        with self.assertLogs("payments_processing.presentation.consumer.handler", "WARNING"):
+            await handler.handle(message())
+
+        self.assertEqual(self.broker.publish.await_args.kwargs["timeout"], 2.5)

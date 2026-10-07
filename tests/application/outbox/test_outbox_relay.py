@@ -30,15 +30,18 @@ class OutboxRelayTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([c.args[0] for c in self.publisher.publish.await_args_list], pending)
         self.assertEqual((outbox.pending, outbox.published), ([], pending))
 
-    async def test_publish_error_leaves_the_whole_batch_pending(self):
+    async def test_publish_error_keeps_earlier_events_published_and_stops_the_batch(self):
+        """Re-sending the events already published would only create duplicates for the consumer."""
         pending = events(3)
         outbox = InMemoryOutboxRepository(pending)
         self.publisher.publish.side_effect = [None, ConnectionError("broker down")]
 
-        with self.assertRaises(ConnectionError):
-            await self.relay(outbox).publish_pending()
+        with self.assertLogs("payments_processing.application.outbox.outbox_relay", "ERROR"):
+            published = await self.relay(outbox).publish_pending()
 
-        self.assertEqual((outbox.pending, outbox.published), (pending, []))
+        self.assertEqual(published, 1)
+        self.assertEqual((outbox.published, outbox.pending), (pending[:1], pending[1:]))
+        self.assertEqual(self.publisher.publish.await_count, 2)
 
     async def test_batch_size_limits_one_run(self):
         outbox = InMemoryOutboxRepository(events(3))

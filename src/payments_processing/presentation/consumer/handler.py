@@ -10,6 +10,7 @@ from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.entities.outbox_event import PaymentCreated
+from payments_processing.domain.errors import PaymentNotFoundError
 from payments_processing.infrastructure.broker.retry import Attempt
 
 
@@ -21,6 +22,7 @@ class PaymentCreatedHandler:
 
     processing: PaymentProcessing
     broker: RabbitBroker
+    publish_timeout_s: float = 10.0
 
     _logger: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
@@ -35,6 +37,9 @@ class PaymentCreatedHandler:
 
         try:
             await self.processing.process(event.payment_id)
+        except PaymentNotFoundError:
+            self._logger.exception("payment %s does not exist, dead-lettering without retries", event.payment_id)
+            await message.reject()
         except Exception:
             await self._retry_or_dead_letter(message, event.payment_id, attempt)
         else:
@@ -59,6 +64,7 @@ class PaymentCreatedHandler:
                 persist=True,
                 message_id=message.message_id,
                 content_type=message.content_type,
+                timeout=self.publish_timeout_s,
             )
         except Exception:
             self._logger.exception("payment %s: retry publish failed, dead-lettering", payment_id)

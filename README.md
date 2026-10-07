@@ -94,17 +94,18 @@
 3. **Тот же `Idempotency-Key` с другим телом?** `409 Conflict`. С тем же телом — `202` и уже созданный платёж с текущим статусом. Тело сравнивается по sha256 канонического JSON, поэтому `100` и `100.00` — одно и то же.
 4. **Область действия ключа идемпотентности?** Глобальная: при одном статическом API-ключе клиент один.
 5. **Может ли webhook прийти дважды?** Да, доставка at-least-once. Клиент дедуплицирует по `payment_id`. Статус платежа при этом меняется ровно один раз (условный `UPDATE … WHERE status = 'pending'`).
-6. **Что если consumer упадёт во время эмуляции шлюза?** Сообщение без ack вернётся в очередь, и шлюз будет вызван повторно. Реальному шлюзу передавался бы `payment.id` как ключ идемпотентности.
+6. **Что если сообщение придёт дважды, в том числе одновременно?** Шлюз идемпотентен по `payment.id`: повторный вызов возвращает результат первого списания и не списывает снова. Эмулятор помнит списания в памяти процесса; реальному шлюзу `payment.id` передавался бы как ключ идемпотентности.
 7. **Где работает outbox relay?** Фоновой задачей в процессе api. `SELECT … FOR UPDATE SKIP LOCKED` позволяет запускать несколько реплик api.
 8. **В каком виде передавать `amount`?** Строкой (`"100.50"`) или целым числом. Дробное JSON-число (`100.5`) отклоняется с `422`: при разборе JSON оно проходит через `float` и после ~15 значащих цифр молча округляется.
 9. **Зачем сервис `webhook-echo`?** Dev-приёмник webhook, чтобы результат был виден без внешних сервисов. Пути `/fail*` отвечают 500 — так проверяются retry и DLQ.
-10. **`X-API-Key` нужен и на служебных эндпоинтах?** Нет. Ключ обязателен на всех эндпоинтах API (`/api/v1/*`). `/health` (healthcheck в compose), `/docs` и `/openapi.json` (документация) открыты.
+10. **Что происходит с сообщением в DLQ?** Если все три попытки упали до списания (например, была недоступна БД), платёж остаётся `pending`; если не дошёл только webhook — статус уже итоговый. Автоматически из DLQ ничего не возвращается: после устранения причины `make dlq-replay` переносит сообщения обратно в `payments.new` как первые попытки.
+11. **`X-API-Key` нужен и на служебных эндпоинтах?** Нет. Ключ обязателен на всех эндпоинтах API (`/api/v1/*`). `/health` (healthcheck в compose), `/docs` и `/openapi.json` (документация) открыты.
 
 ## Архитектура
 
 ```
 POST /api/v1/payments ──► api: payments + outbox в одной транзакции ──► 202
-api, фоновый outbox relay ──► exchange payments ──► payments.new
+api, фоновый outbox relay (подключается к брокеру сам) ──► exchange payments ──► payments.new
 payments.new ──► consumer: шлюз (2–5 с) → статус в БД → webhook ──► ack
    ├─ ошибка на попытке 1 или 2 ──► payments.new.retry.N (TTL 2 / 4 с) ──► снова payments.new
    └─ ошибка на попытке 3 ──► reject ──► payments.dlx ──► payments.new.dlq
@@ -114,8 +115,8 @@ payments.new ──► consumer: шлюз (2–5 с) → статус в БД �
 |---|---|
 | `domain/` | `Payment`, `Money`, `OutboxEvent` и `PaymentCreated`, доменные ошибки, порты (ABC) |
 | `application/` | use cases: `PaymentCreation`, `PaymentLookup`, `PaymentProcessing`, `OutboxRelay` |
-| `infrastructure/` | Postgres (модели, репозитории), RabbitMQ (`topology`, `retry`, `client`), webhook через httpx, эмулятор шлюза |
-| `presentation/` | HTTP API (FastAPI) и consumer (FastStream) |
+| `infrastructure/` | Postgres (модели, репозитории), RabbitMQ (`topology`, `retry`, `client`, `dlq`), webhook через httpx, эмулятор шлюза |
+| `presentation/` | HTTP API (FastAPI), consumer (FastStream), CLI `replay_dlq` |
 | `project/` | конфиг из env, DI-контейнер (punq), логирование |
 
 ## Запуск
@@ -166,7 +167,7 @@ Webhook в логах `webhook-echo`:
 POST /ok -> 200 {"payment_id":"15e41556-aa0a-4475-879d-7b38d835ca0c","status":"succeeded","amount":"100.50","currency":"RUB","processed_at":"2026-10-07T18:02:44.960146Z"}
 ```
 
-DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/fail"`. Через ~6 с (три попытки) сообщение появится в очереди `payments.new.dlq` в RabbitMQ UI.
+DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/fail"`. Через ~6 с (три попытки) сообщение появится в очереди `payments.new.dlq` в RabbitMQ UI. Вернуть его в обработку: `make dlq-replay`.
 
 ## Тесты
 
