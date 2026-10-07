@@ -1,3 +1,12 @@
+x-app: &app
+  build:
+    context: .
+    dockerfile: deployment/docker/Dockerfile
+  environment:
+    DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
+    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    API_KEY: dev-api-key
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -23,3 +32,33 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  api:
+    <<: *app
+    command: >-
+      sh -c "alembic upgrade head
+      && uvicorn payments_processing.presentation.app:build_app --factory --host 0.0.0.0 --port 8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  consumer:
+    <<: *app
+    command: faststream run payments_processing.presentation.consumer.app:build_consumer --factory
+    depends_on:
+      api:
+        condition: service_healthy
+
+  webhook-echo:
+    build: ./tools/webhook_echo
+    ports:
+      - "9000:9000"
