@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import random
-import uuid
-from collections import OrderedDict
-from dataclasses import dataclass, field
+import hashlib
+from dataclasses import dataclass
 
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
@@ -12,27 +10,19 @@ from payments_processing.domain.services.payments.payment_gateway import Payment
 
 @dataclass
 class FakePaymentGateway(PaymentGateway):
-    """Emulated gateway: uniform 2–5 s latency, 90% success.
+    """Emulated gateway: deterministic 2–5 s latency and a 90% success distribution.
 
-    Idempotent per payment.id like a real gateway given it as the idempotency key. Only the last `max_remembered`
-    charges are kept, in this process only, so consumer replicas do not share them."""
+    Both values come from payment.id, so separate consumer processes and restarts return the same result without
+    sharing state, like a real gateway given payment.id as its idempotency key."""
 
     min_delay_s: float = 2.0
     max_delay_s: float = 5.0
     success_rate: float = 0.9
-    rng: random.Random = field(default_factory=random.Random)
-    max_remembered: int = 10_000
-    _charges: OrderedDict[uuid.UUID, asyncio.Task[PaymentStatus]] = field(
-        default_factory=OrderedDict[uuid.UUID, asyncio.Task[PaymentStatus]], init=False, repr=False
-    )
 
     async def charge(self, payment: Payment) -> PaymentStatus:
-        if payment.id not in self._charges:
-            self._charges[payment.id] = asyncio.create_task(self._charge())
-            if len(self._charges) > self.max_remembered:
-                self._charges.popitem(last=False)
-        return await asyncio.shield(self._charges[payment.id])
-
-    async def _charge(self) -> PaymentStatus:
-        await asyncio.sleep(self.rng.uniform(self.min_delay_s, self.max_delay_s))
-        return PaymentStatus.SUCCEEDED if self.rng.random() < self.success_rate else PaymentStatus.FAILED
+        digest = hashlib.sha256(payment.id.bytes).digest()
+        delay_roll = int.from_bytes(digest[:8]) / 2**64
+        result_roll = int.from_bytes(digest[8:16]) / 2**64
+        delay = self.min_delay_s + (self.max_delay_s - self.min_delay_s) * delay_roll
+        await asyncio.sleep(delay)
+        return PaymentStatus.SUCCEEDED if result_roll < self.success_rate else PaymentStatus.FAILED

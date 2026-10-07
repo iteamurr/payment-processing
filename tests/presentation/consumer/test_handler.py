@@ -20,6 +20,7 @@ def message(body: bytes | None = None, headers: dict | None = None) -> Mock:
     msg.content_type = "application/json"
     msg.raw_message = Mock(type="payment.created")
     msg.ack = AsyncMock()
+    msg.nack = AsyncMock()
     msg.reject = AsyncMock()
     return msg
 
@@ -100,8 +101,8 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
         self.processing.process.assert_not_awaited()
         self.broker.publish.assert_not_awaited()
 
-    async def test_retry_publish_failure_dead_letters_the_message(self):
-        """Manual ack: an exception escaping the handler would leave the delivery unacked until consumer_timeout."""
+    async def test_retry_publish_failure_requeues_the_original_message(self):
+        """A transient broker failure must not send a message to the DLQ before its processing attempts are used."""
         self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
         self.broker.publish.side_effect = ConnectionError("broker nack")
         msg = message()
@@ -109,7 +110,8 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
             await self.handler.handle(msg)
 
-        msg.reject.assert_awaited_once_with()
+        msg.nack.assert_awaited_once_with(requeue=True)
+        msg.reject.assert_not_awaited()
         msg.ack.assert_not_awaited()
 
     async def test_permanent_failures_are_dead_lettered_without_retries(self):

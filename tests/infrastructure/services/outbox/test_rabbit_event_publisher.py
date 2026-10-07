@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 import uuid
@@ -36,11 +37,25 @@ class RabbitEventPublisherTest(unittest.IsolatedAsyncioTestCase):
             timeout=10.0,
         )
 
-    async def test_publish_is_bounded_by_the_timeout(self):
-        """A connection blocked by a RabbitMQ alarm would otherwise hold the relay's row locks indefinitely."""
+    async def test_publish_passes_the_timeout_to_the_broker(self):
         await RabbitEventPublisher(self.broker, timeout_s=2.5).publish(self.event)
 
         self.assertEqual(self.broker.publish.await_args.kwargs["timeout"], 2.5)
+
+    async def test_connect_declare_and_publish_share_one_deadline(self):
+        """Every network phase is bounded while the outbox relay holds row locks."""
+
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(60)
+
+        for blocked in (self.broker.connect, self.declare_topology, self.broker.publish):
+            with self.subTest(blocked=blocked._mock_name):
+                blocked.side_effect = hang
+                with self.assertRaises(TimeoutError):
+                    async with asyncio.timeout(1):
+                        await RabbitEventPublisher(self.broker, timeout_s=0.01).publish(self.event)
+                self.broker.reset_mock(side_effect=True)
+                self.declare_topology.reset_mock(side_effect=True)
 
     async def test_connects_and_declares_the_topology_once_before_the_first_publish(self):
         """The api starts without the broker; the relay's first successful publish brings the connection up."""

@@ -1,3 +1,4 @@
+import json
 import unittest
 import uuid
 from unittest.mock import AsyncMock, create_autospec, patch
@@ -147,6 +148,20 @@ class APITest(unittest.TestCase):
         ):
             with self.subTest(change=change):
                 self.assertEqual(self.create(body=BODY | change).status_code, 422)
+        self.assertEqual(self.repository.payments, {})
+
+    def test_non_finite_metadata_number_returns_422(self):
+        """PostgreSQL JSONB rejects these values, so they must not reach the repository as a 500."""
+        encoded = json.dumps(BODY | {"metadata": {"number": 0}})
+        for number in ("NaN", "Infinity", "-Infinity", "1e100000"):
+            with self.subTest(number=number):
+                body = encoded.replace('"number": 0', f'"number": {number}')
+                response = self.client.post(
+                    "/api/v1/payments",
+                    content=body,
+                    headers=headers(idempotency_key=f"key-{number}") | {"Content-Type": "application/json"},
+                )
+                self.assertEqual(response.status_code, 422)
         self.assertEqual(self.repository.payments, {})
 
     def test_get_returns_all_payment_fields(self):

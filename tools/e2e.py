@@ -24,6 +24,8 @@ API = "http://localhost:8000"
 MGMT = "http://localhost:15672/api"
 API_KEY = os.environ["API_KEY"]
 RABBITMQ_CREDENTIALS = f"{os.environ['RABBITMQ_USER']}:{os.environ['RABBITMQ_PASSWORD']}"
+POSTGRES_USER = os.environ["POSTGRES_USER"]
+POSTGRES_DB = os.environ["POSTGRES_DB"]
 RUN = uuid.uuid4().hex[:8]
 WEBHOOK_LOG = re.compile(r"^(\S+ \S+) POST (\S+) -> (\d+) signature=(\w+) (.*)$")
 
@@ -110,7 +112,7 @@ def compose(*args: str) -> str:
 
 
 def sql(query: str) -> str:
-    return compose("exec", "-T", "postgres", "psql", "-U", "payments", "-d", "payments", "-tAc", query).strip()
+    return compose("exec", "-T", "postgres", "psql", "-U", POSTGRES_USER, "-d", POSTGRES_DB, "-tAc", query).strip()
 
 
 def outbox_rows(payment_id: str, published: bool | None = None) -> int:
@@ -169,6 +171,11 @@ def validation() -> None:
     for name, overrides in cases:
         status, _ = create(new_key(), **overrides)
         check(f"{name} -> 422", status == 422, status)
+    encoded = json.dumps(payment_body(metadata={"number": 0}))
+    for number in ("NaN", "Infinity", "-Infinity", "1e100000"):
+        raw = encoded.replace('"number": 0', f'"number": {number}').encode()
+        status, _ = create(new_key(), raw=raw)
+        check(f"metadata number {number} -> 422", status == 422, status)
     check("malformed JSON body -> 422", create(new_key(), raw=b"{not json")[0] == 422)
     check("body over 64 KiB -> 413", create(new_key(), metadata={"blob": "x" * 70_000})[0] == 413)
     check("GET unknown id -> 404", get(uuid.uuid4())[0] == 404)
@@ -264,7 +271,7 @@ def batch() -> None:
     payment_ids = [create_id(amount=str(i + 1)) for i in range(20)]
     finished = [final_state(payment_id, timeout=40) for payment_id in payment_ids]
     check("all 20 reach a final status", all(finished))
-    check("gateway outcomes (90/10)", True, dict(Counter(f["status"] for f in finished if f)))
+    print(f"INFO  gateway outcomes (90/10 distribution): {dict(Counter(f['status'] for f in finished if f))}")
     deliveries = Counter(len(webhooks(payment_id)) for payment_id in payment_ids)
     check("every payment got exactly one webhook", deliveries == {1: 20}, dict(deliveries))
 

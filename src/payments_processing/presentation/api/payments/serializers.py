@@ -1,65 +1,26 @@
 from __future__ import annotations
 
-import ipaddress
 import uuid
-from collections.abc import Set
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from pydantic import AfterValidator, AliasPath, BaseModel, BeforeValidator, ConfigDict, Field, HttpUrl
 
 from payments_processing.domain.entities.payment import PaymentRequest, PaymentStatus
 from payments_processing.domain.values.money import Currency, Money
-from payments_processing.domain.webhooks import normalize_host
-
-
-def _reject_float(value: Any) -> Any:
-    """json.loads turns fractional numbers into float, which silently rounds past ~15 significant digits."""
-    if isinstance(value, float):
-        raise ValueError("amount must be a string or an integer")
-    return value
-
-
-def _reject_nul[T](value: T) -> T:
-    """Postgres TEXT and JSONB cannot store U+0000."""
-    if _contains_nul(value):
-        raise ValueError("NUL character is not allowed")
-    return value
-
-
-def _contains_nul(value: object) -> bool:
-    if isinstance(value, str):
-        return "\x00" in value
-    if isinstance(value, dict):
-        return any(_contains_nul(k) or _contains_nul(v) for k, v in cast(dict[object, object], value).items())
-    if isinstance(value, list):
-        return any(_contains_nul(item) for item in cast(list[object], value))
-    return False
-
-
-def is_internal_host(url: HttpUrl, allowed_hosts: Set[str]) -> bool:
-    """Localhost names and non-public IP literals, unless allowed; the consumer also checks resolved addresses."""
-    host = normalize_host(url.host or "")
-    if host in allowed_hosts:
-        return False
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        return not ipaddress.ip_address(host).is_global
-    except ValueError:
-        return False
+from payments_processing.presentation.api.payments.validators import reject_float, reject_unsupported_json
 
 
 class CreatePaymentIn(BaseModel):
     amount: Annotated[
         Decimal,
-        BeforeValidator(_reject_float),
+        BeforeValidator(reject_float),
         Field(gt=0, max_digits=18, decimal_places=2, examples=["100.50"]),
     ]
     currency: Currency
-    description: Annotated[str, Field(min_length=1, max_length=1000), AfterValidator(_reject_nul)]
-    metadata: Annotated[dict[str, Any], AfterValidator(_reject_nul)] = Field(default_factory=dict)
+    description: Annotated[str, Field(min_length=1, max_length=1000), AfterValidator(reject_unsupported_json)]
+    metadata: Annotated[dict[str, Any], AfterValidator(reject_unsupported_json)] = Field(default_factory=dict)
     webhook_url: HttpUrl
 
     def to_request(self) -> PaymentRequest:

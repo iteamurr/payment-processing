@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from faststream.rabbit import RabbitBroker
@@ -19,16 +20,17 @@ class RabbitEventPublisher(EventPublisher):
     _connected: bool = field(default=False, init=False, repr=False)
 
     async def publish(self, event: OutboxEvent) -> None:
-        if not self._connected:
-            await self.broker.connect()
-            await declare_topology(self.broker)
-            self._connected = True
-        await self.broker.publish(
-            event.payload,
-            exchange=PAYMENTS_EXCHANGE,
-            routing_key=PAYMENTS_NEW.routing_key,
-            persist=True,
-            message_id=str(event.id),
-            message_type=event.event_type,
-            timeout=self.timeout_s,
-        )
+        async with asyncio.timeout(self.timeout_s):
+            if not self._connected:
+                await self.broker.connect()
+                await declare_topology(self.broker)
+                self._connected = True
+            await self.broker.publish(
+                event.payload,
+                exchange=PAYMENTS_EXCHANGE,
+                routing_key=PAYMENTS_NEW.routing_key,
+                persist=True,
+                message_id=str(event.id),
+                message_type=event.event_type,
+                timeout=self.timeout_s,
+            )

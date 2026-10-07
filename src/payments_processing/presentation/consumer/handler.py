@@ -68,7 +68,7 @@ class PaymentCreatedHandler:
                 timeout=self.publish_timeout_s,
             )
         except Exception:
-            self._logger.exception("payment %s: retry publish failed, dead-lettering", payment_id)
-            await message.reject()
+            self._logger.exception("payment %s: retry publish failed, requeueing the original", payment_id)
+            await message.nack(requeue=True)
             return
         await message.ack()

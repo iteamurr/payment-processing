@@ -1,10 +1,30 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+import math
+from typing import Any, ClassVar, cast
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from payments_processing.presentation.api.common.serializers import ErrorOut
+
+
+def _json_safe(value: object) -> object:
+    """Makes invalid input embedded in a validation error safe for a standards-compliant JSON response."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in cast(dict[object, object], value).items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in cast(list[object] | tuple[object, ...], value)]
+    return value
+
+
+async def request_validation_error(_request: Request, error: RequestValidationError) -> JSONResponse:
+    """Renders 422 even when the rejected input contains non-standard NaN or Infinity values."""
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(_json_safe(error.errors()))})
 
 
 class ApiError(HTTPException):

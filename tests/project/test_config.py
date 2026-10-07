@@ -50,6 +50,17 @@ class ConfigTest(unittest.TestCase):
         with self.assertRaisesRegex(ValidationError, "outbox_batch_size"):
             config_from(REQUIRED | {"OUTBOX_BATCH_SIZE": "lots"})
 
+    def test_non_positive_operational_numbers_fail_at_startup(self):
+        for name in (
+            "OUTBOX_POLL_INTERVAL_S",
+            "OUTBOX_BATCH_SIZE",
+            "WEBHOOK_TIMEOUT_S",
+            "CONSUMER_PREFETCH_COUNT",
+        ):
+            for value in ("0", "-1"):
+                with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
+                    config_from(REQUIRED | {name: value})
+
     def test_secrets_are_not_leaked_in_repr(self):
         config = config_from(REQUIRED | {"API_KEY": "secret-key"})
 

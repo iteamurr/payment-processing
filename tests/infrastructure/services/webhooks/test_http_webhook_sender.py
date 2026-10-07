@@ -67,6 +67,14 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
                 with self.assertRaisesRegex(WebhookDeliveryError, str(status)):
                     await sender.send(self.payment)
 
+    async def test_error_url_does_not_expose_credentials_query_or_fragment(self):
+        payment = self.payment_to("http://alice:password@hooks.example/private/path?token=secret#fragment")
+
+        with self.assertRaises(WebhookDeliveryError) as caught:
+            await self.sender(lambda request: httpx.Response(500)).send(payment)
+
+        self.assertEqual(str(caught.exception), "webhook http://hooks.example/private/path: HTTP 500")
+
     async def test_transport_error_raises(self):
         for error in (httpx.ConnectError("refused"), httpx.ReadTimeout("slow")):
             with self.subTest(error=type(error).__name__):
