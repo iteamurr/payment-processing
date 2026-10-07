@@ -8,6 +8,7 @@ from typing import ClassVar
 
 from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
+from payments_processing.domain.errors import WebhookTargetForbiddenError
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
 from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
@@ -28,9 +29,18 @@ class PaymentProcessing:
         """Errors propagate; the caller decides whether to retry."""
         payment = await self.lookup.get(payment_id)
         if payment.status is PaymentStatus.PENDING:
-            await self.webhooks.check_target(payment)
+            await self._ensure_webhook_target(payment)
             payment = await self._charge(payment)
         await self.webhooks.send(payment)
+
+    async def _ensure_webhook_target(self, payment: Payment) -> None:
+        """A payment whose webhook may not be called is failed uncharged, so GET shows the outcome."""
+        try:
+            await self.webhooks.check_target(payment)
+        except WebhookTargetForbiddenError:
+            payment.complete(PaymentStatus.FAILED, datetime.now(UTC))
+            await self.repository.save_result(payment)
+            raise
 
     async def _charge(self, payment: Payment) -> Payment:
         """Returns the payment as stored: if a parallel delivery saved its result first, that result wins."""

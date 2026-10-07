@@ -80,12 +80,14 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
             await self.processing.process(uuid.uuid4())
         self.webhooks.send.assert_not_awaited()
 
-    async def test_forbidden_webhook_target_is_refused_before_charging(self):
-        """Charging first would take the money and then never tell the client."""
+    async def test_forbidden_webhook_target_fails_the_payment_without_charging(self):
+        """Charging first would take the money without telling the client; pending forever would hide the outcome."""
         self.webhooks.check_target.side_effect = WebhookTargetForbiddenError("10.0.0.5")
 
         with self.assertRaises(WebhookTargetForbiddenError):
             await self.processing.process(self.payment.id)
 
         self.gateway.charge.assert_not_awaited()
-        self.assertIs(self.repository.payments[self.payment.id].status, PaymentStatus.PENDING)
+        stored = self.repository.payments[self.payment.id]
+        self.assertIs(stored.status, PaymentStatus.FAILED)
+        self.assertIsNotNone(stored.processed_at)
