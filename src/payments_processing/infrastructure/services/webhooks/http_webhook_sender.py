@@ -67,9 +67,7 @@ class HttpWebhookSender(WebhookSender):
         for *_, sockaddr in addresses:
             address = ipaddress.ip_address(str(sockaddr[0]).split("%")[0])
             if not address.is_global:
-                raise WebhookTargetForbiddenError(
-                    f"webhook {safe_url}: {url.host} resolves to non-public {address}"
-                )
+                raise WebhookTargetForbiddenError(f"webhook {safe_url}: {url.host} resolves to non-public {address}")
 
     def _headers(self, body: bytes) -> dict[str, str]:
         timestamp = str(int(time.time()))

@@ -20,6 +20,7 @@ class JsonFormatter(logging.Formatter):
 
 
 _LIBRARY_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "faststream")
+_SENSITIVE_LIBRARY_LOGGERS = ("httpx", "httpcore")
 
 
 def configure_logging() -> None:
@@ -31,3 +32,5 @@ def configure_logging() -> None:
         logger = logging.getLogger(name)
         logger.handlers.clear()
         logger.propagate = True
+    for name in _SENSITIVE_LIBRARY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)

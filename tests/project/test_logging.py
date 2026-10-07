@@ -1,7 +1,9 @@
+import io
 import json
 import logging
 import sys
 import unittest
+from unittest.mock import patch
 
 from payments_processing.project.logging import JsonFormatter, configure_logging
 
@@ -33,6 +35,9 @@ class ConfigureLoggingTest(unittest.TestCase):
         root = logging.getLogger()
         saved = (root.handlers[:], root.level)
         self.addCleanup(lambda: (setattr(root, "handlers", saved[0]), root.setLevel(saved[1])))
+        for name in ("httpx", "httpcore"):
+            logger = logging.getLogger(name)
+            self.addCleanup(logger.setLevel, logger.level)
 
     def test_uvicorn_and_faststream_loggers_go_through_the_root_json_handler(self):
         """uvicorn's dictConfig and FastStream's import give these loggers their own plain-text handlers."""
@@ -53,3 +58,17 @@ class ConfigureLoggingTest(unittest.TestCase):
             with self.subTest(logger=logger.name):
                 self.assertEqual(logger.handlers, [])
                 self.assertTrue(logger.propagate)
+
+    def test_http_client_request_logs_are_suppressed_because_they_contain_the_complete_url(self):
+        output = io.StringIO()
+        with patch("sys.stderr", output):
+            configure_logging()
+            for name in ("httpx", "httpcore"):
+                logging.getLogger(name).info(
+                    "HTTP Request: GET http://user:password@hooks.example/path?token=query-secret"
+                )
+            logging.getLogger("httpx").warning("safe transport warning")
+
+        self.assertNotIn("password", output.getvalue())
+        self.assertNotIn("query-secret", output.getvalue())
+        self.assertIn("safe transport warning", output.getvalue())

@@ -239,7 +239,7 @@ def idempotency() -> None:
 def retry_and_dlq() -> None:
     section("retry with backoff, then DLQ, then replay")
     dlq_before = queue_messages("payments.new.dlq") or 0
-    payment_id = create_id(webhook_url="http://webhook-echo:9000/fail")
+    payment_id = create_id(webhook_url="http://webhook-echo:9000/fail/5")
     calls = wait(lambda: len(webhooks(payment_id)) >= 3, 60) and webhooks(payment_id)
     calls = calls or webhooks(payment_id)
     check("webhook attempted exactly 3 times", len(calls) == 3, f"{len(calls)} calls")
@@ -264,6 +264,8 @@ def retry_and_dlq() -> None:
     compose("exec", "-T", "consumer", "python", "-m", "payments_processing.presentation.cli.replay_dlq")
     replayed = wait(lambda: len(webhooks(payment_id)) >= 6, 60)
     check("make dlq-replay sends it through 3 more attempts", replayed, f"{len(webhooks(payment_id))} calls")
+    restored = wait(lambda: queue_messages("payments.new.dlq") == dlq_before, 15)
+    check("replayed payment does not remain in the DLQ", restored, f"{queue_messages('payments.new.dlq')} messages")
 
 
 def batch() -> None:

@@ -61,6 +61,12 @@ class ConfigTest(unittest.TestCase):
                 with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
                     config_from(REQUIRED | {name: value})
 
+    def test_non_finite_operational_numbers_fail_at_startup(self):
+        for name in ("OUTBOX_POLL_INTERVAL_S", "WEBHOOK_TIMEOUT_S"):
+            for value in ("nan", "inf", "-inf"):
+                with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
+                    config_from(REQUIRED | {name: value})
+
     def test_secrets_are_not_leaked_in_repr(self):
         config = config_from(REQUIRED | {"API_KEY": "secret-key"})
 

@@ -11,7 +11,7 @@ from payments_processing.domain.webhooks import normalize_host
 class Config(BaseSettings):
     """Process settings from env vars named after the fields; an empty variable counts as unset."""
 
-    model_config = SettingsConfigDict(frozen=True, env_ignore_empty=True)
+    model_config = SettingsConfigDict(frozen=True, env_ignore_empty=True, allow_inf_nan=False)
 
     database_url: str = Field(repr=False)
     rabbitmq_url: str = Field(repr=False)
