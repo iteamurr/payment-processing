@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Self
 
-from sqlalchemy import CHAR, DateTime, Numeric, String, Text, Uuid
+from sqlalchemy import CHAR, DateTime, Index, Numeric, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -15,7 +15,7 @@ from payments_processing.domain.values.money import Currency, Money
 
 
 class Base(DeclarativeBase):
-    """Query mapping only; constraints and indexes live in the Alembic migrations."""
+    """Mirrors the migrations closely enough for `alembic check`; CHECK constraints live in the migrations only."""
 
 
 class PaymentRow(Base):
@@ -69,6 +69,7 @@ class PaymentRow(Base):
 
 class OutboxRow(Base):
     __tablename__ = "outbox"
+    __table_args__ = (Index("ix_outbox_unpublished", "created_at", postgresql_where=text("published_at IS NULL")),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
     event_type: Mapped[str] = mapped_column(String(64))
