@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 import payments_processing.presentation.api.deps as deps
 from payments_processing.application.payments.payment_creation import PaymentCreation
-from payments_processing.domain.services.payments.payment_repository import PaymentRepository
+from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.presentation.api.app import build_app
 from payments_processing.project.config import Config
 from tests.mocks import InMemoryPaymentRepository
@@ -38,7 +38,7 @@ class APITest(unittest.TestCase):
         self.repository = InMemoryPaymentRepository()
         container = punq.Container()
         container.register(Config, instance=Config(database_url="", rabbitmq_url="", api_key=API_KEY))
-        container.register(PaymentRepository, instance=self.repository)
+        container.register(PaymentLookup, instance=PaymentLookup(self.repository))
         container.register(PaymentCreation, instance=PaymentCreation(self.repository))
         patcher = patch.object(deps, "get_container", return_value=container)
         patcher.start()
@@ -155,3 +155,26 @@ class APITest(unittest.TestCase):
 
     def test_get_with_malformed_id_returns_422(self):
         self.assertEqual(self.client.get("/api/v1/payments/not-a-uuid", headers=headers()).status_code, 422)
+
+    def test_error_body_matches_its_openapi_description(self):
+        """Status, body and docs come from one ApiError class, so they cannot drift apart."""
+        self.create()
+        responses = {
+            401: self.create(api_key=None),
+            404: self.client.get(f"/api/v1/payments/{uuid.uuid4()}", headers=headers()),
+            409: self.create(body=BODY | {"amount": "1.00"}),
+        }
+        paths = self.client.get("/openapi.json").json()["paths"]
+        documented = {
+            401: paths["/api/v1/payments"]["post"]["responses"]["401"],
+            404: paths["/api/v1/payments/{payment_id}"]["get"]["responses"]["404"],
+            409: paths["/api/v1/payments"]["post"]["responses"]["409"],
+        }
+
+        for status, response in responses.items():
+            with self.subTest(status=status):
+                self.assertEqual(response.status_code, status)
+                self.assertEqual(response.json(), {"detail": documented[status]["description"]})
+                self.assertTrue(
+                    documented[status]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorOut")
+                )

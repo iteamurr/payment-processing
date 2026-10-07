@@ -56,7 +56,9 @@ class CreatePaymentIn(BaseModel):
 
 
 class PaymentAcceptedOut(BaseModel):
-    payment_id: uuid.UUID
+    model_config = ConfigDict(from_attributes=True)
+
+    payment_id: uuid.UUID = Field(validation_alias="id")
     status: PaymentStatus
     created_at: datetime
 

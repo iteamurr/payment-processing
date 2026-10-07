@@ -13,15 +13,14 @@ class SqlOutboxRepositoryTest(DatabaseTestCase):
         self.outbox = SqlOutboxRepository(self.sessions)
 
     async def insert_events(self, count: int) -> list[OutboxEvent]:
+        """Inserted newest first, so the oldest-first order in assertions comes from created_at."""
         start = datetime.now(UTC)
         events = [
             OutboxEvent(uuid.uuid4(), PAYMENT_CREATED, {"payment_id": str(uuid.uuid4())}, start + timedelta(seconds=i))
             for i in range(count)
         ]
-        rows = [OutboxRow(id=e.id, event_type=e.event_type, payload=e.payload, created_at=e.created_at) for e in events]
         async with self.sessions.begin() as session:
-            # inserted newest first to prove ordering comes from created_at
-            session.add_all(reversed(rows))
+            session.add_all(OutboxRow.from_event(event) for event in reversed(events))
         return events
 
     async def test_yields_unpublished_oldest_first_and_marks_them_published(self):

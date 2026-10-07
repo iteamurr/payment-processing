@@ -6,17 +6,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import ClassVar
 
+from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
-from payments_processing.domain.errors import PaymentNotFoundError
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
-from payments_processing.domain.services.payments.webhook_sender import WebhookSender
+from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
 
 
 @dataclass
 class PaymentProcessing:
     """Charges a pending payment once and notifies its webhook; safe to run again for the same payment."""
 
+    lookup: PaymentLookup
     repository: PaymentRepository
     gateway: PaymentGateway
     webhooks: WebhookSender
@@ -25,17 +26,15 @@ class PaymentProcessing:
 
     async def process(self, payment_id: uuid.UUID) -> None:
         """Errors propagate; the caller decides whether to retry."""
-        payment = await self._get(payment_id)
+        payment = await self.lookup.get(payment_id)
         if payment.status is PaymentStatus.PENDING:
-            payment.complete(await self.gateway.charge(payment), datetime.now(UTC))
-            if not await self.repository.save_result(payment):
-                # a parallel delivery stored its result first; notify with that one
-                payment = await self._get(payment_id)
-            self._logger.info("payment %s processed: %s", payment.id, payment.status)
+            payment = await self._charge(payment)
         await self.webhooks.send(payment)
 
-    async def _get(self, payment_id: uuid.UUID) -> Payment:
-        payment = await self.repository.get(payment_id)
-        if payment is None:
-            raise PaymentNotFoundError(f"payment {payment_id} not found")
+    async def _charge(self, payment: Payment) -> Payment:
+        """Returns the payment as stored: if a parallel delivery saved its result first, that result wins."""
+        payment.complete(await self.gateway.charge(payment), datetime.now(UTC))
+        if not await self.repository.save_result(payment):
+            payment = await self.lookup.get(payment.id)
+        self._logger.info("payment %s processed: %s", payment.id, payment.status)
         return payment

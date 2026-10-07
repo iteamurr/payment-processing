@@ -98,6 +98,25 @@
 7. **Где работает outbox relay?** Фоновой задачей в процессе api. `SELECT … FOR UPDATE SKIP LOCKED` позволяет запускать несколько реплик api.
 8. **В каком виде передавать `amount`?** Строкой (`"100.50"`) или целым числом. Дробное JSON-число (`100.5`) отклоняется с `422`: при разборе JSON оно проходит через `float` и после ~15 значащих цифр молча округляется.
 9. **Зачем сервис `webhook-echo`?** Dev-приёмник webhook, чтобы результат был виден без внешних сервисов. Пути `/fail*` отвечают 500 — так проверяются retry и DLQ.
+10. **`X-API-Key` нужен и на служебных эндпоинтах?** Нет. Ключ обязателен на всех эндпоинтах API (`/api/v1/*`). `/health` (healthcheck в compose), `/docs` и `/openapi.json` (документация) открыты.
+
+## Архитектура
+
+```
+POST /api/v1/payments ──► api: payments + outbox в одной транзакции ──► 202
+api, фоновый outbox relay ──► exchange payments ──► payments.new
+payments.new ──► consumer: шлюз (2–5 с) → статус в БД → webhook ──► ack
+   ├─ ошибка на попытке 1 или 2 ──► payments.new.retry.N (TTL 2 / 4 с) ──► снова payments.new
+   └─ ошибка на попытке 3 ──► reject ──► payments.dlx ──► payments.new.dlq
+```
+
+| Слой | Что внутри |
+|---|---|
+| `domain/` | `Payment`, `Money`, `OutboxEvent` и `PaymentCreated`, доменные ошибки, порты (ABC) |
+| `application/` | use cases: `PaymentCreation`, `PaymentLookup`, `PaymentProcessing`, `OutboxRelay` |
+| `infrastructure/` | Postgres (модели, репозитории), RabbitMQ (`topology`, `retry`, `client`), webhook через httpx, эмулятор шлюза |
+| `presentation/` | HTTP API (FastAPI) и consumer (FastStream) |
+| `project/` | конфиг из env, DI-контейнер (punq), логирование |
 
 ## Запуск
 
@@ -144,7 +163,7 @@ curl -s http://localhost:8000/api/v1/payments/15e41556-aa0a-4475-879d-7b38d835ca
 Webhook в логах `webhook-echo`:
 
 ```
-POST /ok -> 200 {"payment_id":"15e41556-aa0a-4475-879d-7b38d835ca0c","status":"succeeded","amount":"100.50","currency":"RUB","processed_at":"2026-10-07T18:02:44.960146+00:00"}
+POST /ok -> 200 {"payment_id":"15e41556-aa0a-4475-879d-7b38d835ca0c","status":"succeeded","amount":"100.50","currency":"RUB","processed_at":"2026-10-07T18:02:44.960146Z"}
 ```
 
 DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/fail"`. Через ~6 с (три попытки) сообщение появится в очереди `payments.new.dlq` в RabbitMQ UI.
@@ -152,7 +171,9 @@ DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/
 ## Тесты
 
 ```bash
-make test   # unit-тесты; тесты с БД и брокером пропускаются
+make lint        # ruff
+make typecheck   # pyright: strict для src и migrations
+make test        # unit-тесты; тесты с БД и брокером пропускаются
 ```
 
 С Postgres и RabbitMQ. `api` и `consumer` должны быть остановлены, иначе они заберут outbox-записи и сообщения тестов. Тесты очищают таблицы и очереди dev-окружения:

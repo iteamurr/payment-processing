@@ -8,7 +8,7 @@ import httpx
 
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.domain.errors import WebhookDeliveryError
-from payments_processing.infrastructure.services.payments.http_webhook_sender import HttpWebhookSender
+from payments_processing.infrastructure.services.webhooks.http_webhook_sender import HttpWebhookSender
 from tests.mocks import payment_request
 
 URL = "http://hooks.example/ok"
@@ -43,7 +43,7 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
                 "status": "succeeded",
                 "amount": "100.50",
                 "currency": "RUB",
-                "processed_at": "2026-10-07T12:00:00+00:00",
+                "processed_at": "2026-10-07T12:00:00Z",
             },
         )
 

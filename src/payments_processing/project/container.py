@@ -7,19 +7,20 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
+from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.services.outbox.event_publisher import EventPublisher
 from payments_processing.domain.services.outbox.outbox_repository import OutboxRepository
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
-from payments_processing.domain.services.payments.webhook_sender import WebhookSender
-from payments_processing.infrastructure.broker.rabbit import build_broker
+from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
+from payments_processing.infrastructure.broker.client import build_broker
 from payments_processing.infrastructure.db.session import build_engine, build_sessionmaker
 from payments_processing.infrastructure.services.outbox.rabbit_event_publisher import RabbitEventPublisher
 from payments_processing.infrastructure.services.outbox.sql_outbox_repository import SqlOutboxRepository
 from payments_processing.infrastructure.services.payments.fake_payment_gateway import FakePaymentGateway
-from payments_processing.infrastructure.services.payments.http_webhook_sender import HttpWebhookSender
 from payments_processing.infrastructure.services.payments.sql_payment_repository import SqlPaymentRepository
+from payments_processing.infrastructure.services.webhooks.http_webhook_sender import HttpWebhookSender
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 from payments_processing.project.config import Config
 
@@ -50,6 +51,7 @@ def build_container(config: Config) -> punq.Container:
         poll_interval_s=config.outbox_poll_interval_s,
     )
     container.register(PaymentCreation, scope=punq.Scope.singleton)
+    container.register(PaymentLookup, scope=punq.Scope.singleton)
 
     container.register(httpx.AsyncClient, instance=httpx.AsyncClient())
     container.register(WebhookSender, HttpWebhookSender, scope=punq.Scope.singleton, timeout_s=config.webhook_timeout_s)

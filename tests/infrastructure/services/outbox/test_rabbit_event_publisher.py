@@ -7,12 +7,8 @@ from faststream.rabbit import RabbitBroker
 from pamqp.commands import Basic
 
 from payments_processing.domain.entities.outbox_event import OutboxEvent
-from payments_processing.infrastructure.broker.rabbit import (
-    PAYMENTS_EXCHANGE,
-    PAYMENTS_NEW,
-    build_broker,
-    declare_topology,
-)
+from payments_processing.infrastructure.broker.client import build_broker
+from payments_processing.infrastructure.broker.topology import PAYMENTS_EXCHANGE, PAYMENTS_NEW, declare_topology
 from payments_processing.infrastructure.services.outbox.rabbit_event_publisher import (
     PublishNotConfirmedError,
     RabbitEventPublisher,
@@ -58,7 +54,7 @@ class RabbitEventPublisherTest(unittest.IsolatedAsyncioTestCase):
 @requires_rabbitmq
 class RabbitEventPublisherIntegrationTest(unittest.IsolatedAsyncioTestCase):
     async def test_event_lands_in_payments_new(self):
-        broker = build_broker(RABBITMQ_URL)
+        broker = build_broker(RABBITMQ_URL, prefetch_count=1)
         await broker.connect()
         self.addAsyncCleanup(broker.stop)
         await declare_topology(broker)

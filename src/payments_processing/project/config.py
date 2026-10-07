@@ -18,12 +18,14 @@ class Config:
 
     @classmethod
     def from_env(cls) -> Self:
-        """Builds Config from env vars named after the fields, falling back to field defaults."""
+        """Builds Config from env vars named after the fields, falling back to field defaults.
+
+        Values are parsed by calling the field annotation, so this module must not use
+        `from __future__ import annotations`."""
         values: dict[str, Any] = {}
         for f in fields(cls):
             name = f.name.upper()
             if os.environ.get(name):
-                # annotations are real types here: this module must not use `from __future__ import annotations`
                 parse = cast(Callable[[str], Any], f.type)
                 values[f.name] = parse(os.environ[name])
             elif f.default is MISSING:

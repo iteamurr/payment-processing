@@ -1,28 +1,16 @@
 import unittest
 
-from payments_processing.infrastructure.broker.rabbit import (
+from payments_processing.infrastructure.broker.client import build_broker
+from payments_processing.infrastructure.broker.topology import (
     PAYMENTS_NEW,
     PAYMENTS_NEW_DLQ,
     RETRY_QUEUES,
-    build_broker,
     declare_topology,
-    retry_queue,
 )
 from tests.live_services import RABBITMQ_URL, requires_rabbitmq
 
 
-class RetryQueueTest(unittest.TestCase):
-    def test_failed_attempts_one_and_two_wait_two_then_four_seconds(self):
-        first, second = retry_queue(1), retry_queue(2)
-        assert first is not None and second is not None
-
-        self.assertEqual((first.name, first.arguments["x-message-ttl"]), ("payments.new.retry.1", 2000))
-        self.assertEqual((second.name, second.arguments["x-message-ttl"]), ("payments.new.retry.2", 4000))
-
-    def test_third_failed_attempt_has_no_retry(self):
-        self.assertIsNone(retry_queue(3))
-        self.assertIsNone(retry_queue(4))
-
+class TopologyTest(unittest.TestCase):
     def test_retry_queues_dead_letter_back_into_payments_new(self):
         for queue in RETRY_QUEUES:
             with self.subTest(queue=queue.name):
@@ -37,7 +25,7 @@ class RetryQueueTest(unittest.TestCase):
 @requires_rabbitmq
 class DeclareTopologyTest(unittest.IsolatedAsyncioTestCase):
     async def test_declaring_twice_is_idempotent(self):
-        broker = build_broker(RABBITMQ_URL)
+        broker = build_broker(RABBITMQ_URL, prefetch_count=1)
         await broker.connect()
         self.addAsyncCleanup(broker.stop)
 

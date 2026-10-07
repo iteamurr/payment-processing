@@ -11,14 +11,15 @@ from sqlalchemy import select, text
 
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
+from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
-from payments_processing.infrastructure.broker.rabbit import (
-    ATTEMPT_HEADER,
+from payments_processing.infrastructure.broker.client import build_broker
+from payments_processing.infrastructure.broker.retry import ATTEMPT_HEADER
+from payments_processing.infrastructure.broker.topology import (
     PAYMENTS_NEW,
     PAYMENTS_NEW_DLQ,
     RETRY_QUEUES,
-    build_broker,
     declare_topology,
 )
 from payments_processing.infrastructure.db.models import OutboxRow
@@ -26,8 +27,8 @@ from payments_processing.infrastructure.db.session import build_engine, build_se
 from payments_processing.infrastructure.services.outbox.rabbit_event_publisher import RabbitEventPublisher
 from payments_processing.infrastructure.services.outbox.sql_outbox_repository import SqlOutboxRepository
 from payments_processing.infrastructure.services.payments.fake_payment_gateway import FakePaymentGateway
-from payments_processing.infrastructure.services.payments.http_webhook_sender import HttpWebhookSender
 from payments_processing.infrastructure.services.payments.sql_payment_repository import SqlPaymentRepository
+from payments_processing.infrastructure.services.webhooks.http_webhook_sender import HttpWebhookSender
 from payments_processing.presentation.consumer.app import subscribe
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 from tests.live_services import DATABASE_URL, RABBITMQ_URL, migrate, requires_database, requires_rabbitmq
@@ -93,9 +94,10 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         client = httpx.AsyncClient()
         self.addAsyncCleanup(client.aclose)
         gateway = FakePaymentGateway(min_delay_s=0, max_delay_s=0, success_rate=1.0)
-        processing = PaymentProcessing(self.repository, gateway, HttpWebhookSender(client, timeout_s=5))
+        sender = HttpWebhookSender(client, timeout_s=5)
+        processing = PaymentProcessing(PaymentLookup(self.repository), self.repository, gateway, sender)
 
-        broker = build_broker(RABBITMQ_URL)
+        broker = build_broker(RABBITMQ_URL, prefetch_count=1)
         subscribe(broker, PaymentCreatedHandler(processing, broker))
         await broker.connect()
         await declare_topology(broker)

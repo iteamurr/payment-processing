@@ -10,7 +10,7 @@ from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.entities.outbox_event import PaymentCreated
-from payments_processing.infrastructure.broker.rabbit import ATTEMPT_HEADER, retry_queue
+from payments_processing.infrastructure.broker.retry import Attempt
 
 
 @dataclass
@@ -26,35 +26,36 @@ class PaymentCreatedHandler:
 
     async def handle(self, message: RabbitMessage) -> None:
         try:
-            payment_id, attempt = _parse(message)
+            event = PaymentCreated.from_payload(json.loads(message.body))
+            attempt = Attempt.from_headers(message.headers)
         except (TypeError, ValueError):
             self._logger.warning("malformed message %s, dead-lettering", message.message_id, exc_info=True)
             await message.reject()
             return
 
         try:
-            await self.processing.process(payment_id)
+            await self.processing.process(event.payment_id)
         except Exception:
-            await self._retry_or_dead_letter(message, payment_id, attempt)
+            await self._retry_or_dead_letter(message, event.payment_id, attempt)
         else:
             await message.ack()
 
-    async def _retry_or_dead_letter(self, message: RabbitMessage, payment_id: uuid.UUID, attempt: int) -> None:
-        retry = retry_queue(attempt)
+    async def _retry_or_dead_letter(self, message: RabbitMessage, payment_id: uuid.UUID, attempt: Attempt) -> None:
+        """The retry copy is published before the original is acked: a crash in between duplicates, never loses."""
+        retry = attempt.retry_queue()
         if retry is None:
-            self._logger.exception("payment %s failed on attempt %s, dead-lettering", payment_id, attempt)
+            self._logger.exception("payment %s failed on attempt %s, dead-lettering", payment_id, attempt.number)
             await message.reject()
             return
 
         self._logger.warning(
-            "payment %s failed on attempt %s, retrying via %s", payment_id, attempt, retry.name, exc_info=True
+            "payment %s failed on attempt %s, retrying via %s", payment_id, attempt.number, retry.name, exc_info=True
         )
         try:
-            # published before ack: a crash in between duplicates the message, never loses it
             await self.broker.publish(
                 message.body,
                 queue=retry,
-                headers={**message.headers, ATTEMPT_HEADER: attempt + 1},
+                headers=attempt.next_headers(message.headers),
                 persist=True,
                 message_id=message.message_id,
                 content_type=message.content_type,
@@ -64,12 +65,3 @@ class PaymentCreatedHandler:
             await message.reject()
             return
         await message.ack()
-
-
-def _parse(message: RabbitMessage) -> tuple[uuid.UUID, int]:
-    """Raises ValueError or TypeError on a malformed body or x-attempt header."""
-    payment_id = PaymentCreated.from_payload(json.loads(message.body)).payment_id
-    attempt = int(message.headers.get(ATTEMPT_HEADER, 1))
-    if attempt < 1:
-        raise ValueError(f"{ATTEMPT_HEADER} must be positive, got {attempt}")
-    return payment_id, attempt

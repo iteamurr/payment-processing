@@ -3,7 +3,7 @@ from unittest.mock import create_autospec
 
 from faststream.rabbit import RabbitBroker, TestRabbitBroker
 
-from payments_processing.infrastructure.broker.rabbit import PAYMENTS_EXCHANGE, PAYMENTS_NEW
+from payments_processing.infrastructure.broker.topology import PAYMENTS_EXCHANGE, PAYMENTS_NEW
 from payments_processing.presentation.consumer.app import subscribe
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 

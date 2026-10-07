@@ -7,7 +7,7 @@ from pamqp.commands import Basic
 
 from payments_processing.domain.entities.outbox_event import OutboxEvent
 from payments_processing.domain.services.outbox.event_publisher import EventPublisher
-from payments_processing.infrastructure.broker.rabbit import PAYMENTS_EXCHANGE, PAYMENTS_NEW
+from payments_processing.infrastructure.broker.topology import PAYMENTS_EXCHANGE, PAYMENTS_NEW
 
 
 class PublishNotConfirmedError(ConnectionError):

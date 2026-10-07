@@ -2,12 +2,13 @@ import unittest
 import uuid
 from unittest.mock import create_autospec
 
+from payments_processing.application.payments.payment_lookup import PaymentLookup
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.entities.outbox_event import OutboxEvent
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
-from payments_processing.domain.services.payments.webhook_sender import WebhookSender
+from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
 from tests.mocks import InMemoryPaymentRepository, payment_request
 
 
@@ -17,7 +18,9 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
         self.gateway = create_autospec(PaymentGateway, instance=True)
         self.gateway.charge.return_value = PaymentStatus.SUCCEEDED
         self.webhooks = create_autospec(WebhookSender, instance=True)
-        self.processing = PaymentProcessing(self.repository, self.gateway, self.webhooks)
+        self.processing = PaymentProcessing(
+            PaymentLookup(self.repository), self.repository, self.gateway, self.webhooks
+        )
         self.payment = Payment.build(payment_request(), "key-1")
         await self.repository.add(self.payment, OutboxEvent.payment_created(self.payment.id))
 
@@ -58,8 +61,9 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.webhooks.send.await_count, 2)
 
     async def test_lost_race_notifies_with_the_status_stored_by_the_winner(self):
+        """A parallel delivery of the same message stores FAILED while this one is still charging."""
+
         async def charge(payment):
-            # a parallel delivery of the same message stores its result first
             winner = self.repository.payments[payment.id]
             winner.status = PaymentStatus.FAILED
             return PaymentStatus.SUCCEEDED

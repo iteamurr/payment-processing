@@ -4,7 +4,7 @@ from faststream.rabbit import RabbitBroker
 from faststream.rabbit.annotations import RabbitMessage
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from payments_processing.infrastructure.broker.rabbit import PAYMENTS_EXCHANGE, PAYMENTS_NEW, declare_topology
+from payments_processing.infrastructure.broker.topology import PAYMENTS_EXCHANGE, PAYMENTS_NEW, declare_topology
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 from payments_processing.project.container import get_container
 from payments_processing.project.logging import configure_logging
@@ -25,7 +25,7 @@ def build_consumer() -> FastStream:
     subscribe(broker, container.resolve(PaymentCreatedHandler))
 
     async def declare() -> None:
-        # retry queues and the DLQ must exist before the first message can fail
+        """Retry queues and the DLQ must exist before the first message can fail."""
         await broker.connect()
         await declare_topology(broker)
 

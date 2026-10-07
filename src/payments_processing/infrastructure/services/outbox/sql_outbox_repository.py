@@ -30,11 +30,7 @@ class SqlOutboxRepository(OutboxRepository):
                     .with_for_update(skip_locked=True)
                 )
             )
-            yield [_to_event(row) for row in rows]
+            yield [row.to_event() for row in rows]
             published_at = datetime.now(UTC)
             for row in rows:
                 row.published_at = published_at
-
-
-def _to_event(row: OutboxRow) -> OutboxEvent:
-    return OutboxEvent(id=row.id, event_type=row.event_type, payload=row.payload, created_at=row.created_at)

@@ -9,7 +9,7 @@ from faststream.rabbit import RabbitBroker
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
-from payments_processing.infrastructure.broker.rabbit import declare_topology
+from payments_processing.infrastructure.broker.topology import declare_topology
 from payments_processing.presentation.api.payments.methods import router as payments_router
 from payments_processing.presentation.api.probes.methods import router as probes_router
 from payments_processing.project.container import get_container
