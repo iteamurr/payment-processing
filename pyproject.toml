@@ -1,0 +1,36 @@
+[project]
+name = "payments-processing"
+version = "0.1.0"
+description = "Async payment processing: FastAPI, transactional outbox, RabbitMQ consumer with retries and DLQ"
+requires-python = ">=3.12,<4.0"
+dependencies = [
+    "fastapi (>=0.115,<1)",
+    "uvicorn (>=0.30,<1)",
+    "pydantic (>=2.7,<3)",
+    "sqlalchemy[asyncio] (>=2.0,<3)",
+    "asyncpg (>=0.29,<1)",
+    "alembic (>=1.13,<2)",
+    "faststream[rabbit,cli] (>=0.7,<0.8)",
+    "httpx (>=0.27,<1)",
+    "punq (>=0.7,<1)",
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "ruff (>=0.16.8,<0.17.0)"
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["B008"]  # resolve_depends(...) / Header(...) as FastAPI defaults is the intended idiom
+
+[tool.ruff.lint.isort]
+known-first-party = ["payments_processing"]
