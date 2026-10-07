@@ -145,6 +145,7 @@ def webhooks(payment_id: str) -> list[tuple[datetime, str, int, str, dict[str, A
 def health_and_auth() -> None:
     section("health and auth")
     check("GET /health without a key -> 200", http("GET", f"{API}/health")[0] == 200)
+    check("GET /ready without a key -> 200", http("GET", f"{API}/ready")[0] == 200)
     status, body = create(new_key(), api_key=None)
     check("POST without X-API-Key -> 401", status == 401 and body == {"detail": "Missing or invalid X-API-Key"}, body)
     check("POST with a wrong key -> 401", create(new_key(), api_key="nope")[0] == 401)
@@ -284,6 +285,7 @@ def broker_down() -> None:
     compose("stop", "rabbitmq")
     status, accepted = create(new_key())
     check("POST still -> 202 with the broker down", status == 202, status)
+    check("api stays ready with the broker down", http("GET", f"{API}/ready")[0] == 200)
     if status != 202:
         return
     payment_id = accepted["payment_id"]

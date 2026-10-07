@@ -1,9 +1,10 @@
 import unittest
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, create_autospec, patch
 
 import punq
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 import payments_processing.presentation.api.deps as deps
 from payments_processing.application.payments.payment_creation import PaymentCreation
@@ -13,6 +14,7 @@ from payments_processing.project.config import Config
 from tests.mocks import InMemoryPaymentRepository
 
 API_KEY = "test-key"
+PING = "payments_processing.presentation.api.probes.methods.ping"
 BODY = {
     "amount": "100.50",
     "currency": "RUB",
@@ -40,6 +42,7 @@ class APITest(unittest.TestCase):
         container.register(Config, instance=Config(database_url="", rabbitmq_url="", api_key=API_KEY))
         container.register(PaymentLookup, instance=PaymentLookup(self.repository))
         container.register(PaymentCreation, instance=PaymentCreation(self.repository))
+        container.register(AsyncEngine, instance=create_autospec(AsyncEngine, instance=True))
         patcher = patch.object(deps, "get_api_container", return_value=container)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -47,6 +50,20 @@ class APITest(unittest.TestCase):
 
     def create(self, body=BODY, **kwargs):
         return self.client.post("/api/v1/payments", json=body, headers=headers(**kwargs))
+
+    def test_ready_when_postgres_answers(self):
+        with patch(PING, new_callable=AsyncMock) as ping:
+            response = self.client.get("/ready")
+
+        self.assertEqual((response.status_code, response.text), (200, "ok"))
+        ping.assert_awaited_once()
+
+    def test_not_ready_when_postgres_is_unreachable(self):
+        """RabbitMQ is deliberately not checked: the outbox accepts payments while the broker is down."""
+        with patch(PING, new_callable=AsyncMock, side_effect=OSError("connection refused")):
+            response = self.client.get("/ready")
+
+        self.assertEqual((response.status_code, response.text), (503, "postgres unavailable"))
 
     def test_health_needs_no_api_key(self):
         response = self.client.get("/health")
