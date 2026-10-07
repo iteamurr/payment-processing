@@ -13,6 +13,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -23,9 +25,12 @@ services:
 
   rabbitmq:
     image: rabbitmq:3-management
+    hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set in .env}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set in .env}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -35,22 +40,24 @@ services:
       timeout: 5s
       retries: 20
 
+  migrate:
+    <<: *app
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     <<: *app
     restart: unless-stopped
     environment:
       <<: *app-env
       API_KEY: ${API_KEY:?set in .env}
-    command: >-
-      sh -c "alembic upgrade head
-      && uvicorn payments_processing.presentation.api.app:build_app --factory --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
       interval: 3s
@@ -65,8 +72,11 @@ services:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set in .env}
       WEBHOOK_ALLOWED_HOSTS: webhook-echo
     command: faststream run payments_processing.presentation.consumer.app:build_consumer --factory
+    stop_grace_period: 30s
     depends_on:
-      api:
+      migrate:
+        condition: service_completed_successfully
+      rabbitmq:
         condition: service_healthy
 
   webhook-echo:
@@ -75,3 +85,7 @@ services:
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set in .env}
     ports:
       - "9000:9000"
+
+volumes:
+  postgres-data:
+  rabbitmq-data:

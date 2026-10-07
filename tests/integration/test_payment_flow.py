@@ -138,7 +138,7 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         async def dead_lettered():
             return await dlq.get(no_ack=True, fail=False)
 
-        message = await eventually(dead_lettered, timeout=20)
+        message = await eventually(dead_lettered, timeout=60)
 
         self.assertEqual(json.loads(message.body), {"payment_id": str(payment.id)})
         self.assertEqual(message.headers[ATTEMPT_HEADER], 3)

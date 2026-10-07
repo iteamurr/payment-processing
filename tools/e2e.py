@@ -233,12 +233,12 @@ def retry_and_dlq() -> None:
     section("retry with backoff, then DLQ, then replay")
     dlq_before = queue_messages("payments.new.dlq") or 0
     payment_id = create_id(webhook_url="http://webhook-echo:9000/fail")
-    calls = wait(lambda: len(webhooks(payment_id)) >= 3, 25) and webhooks(payment_id)
+    calls = wait(lambda: len(webhooks(payment_id)) >= 3, 60) and webhooks(payment_id)
     calls = calls or webhooks(payment_id)
     check("webhook attempted exactly 3 times", len(calls) == 3, f"{len(calls)} calls")
     if len(calls) == 3:
         gaps = [(calls[i + 1][0] - calls[i][0]).total_seconds() for i in range(2)]
-        check("gaps ≈ 2 s then ≈ 4 s", 1.5 <= gaps[0] <= 3.5 and 3.5 <= gaps[1] <= 6, f"{gaps[0]:.2f}s, {gaps[1]:.2f}s")
+        check("gaps ≈ 5 s then ≈ 30 s", 4.5 <= gaps[0] <= 7 and 29 <= gaps[1] <= 33, f"{gaps[0]:.2f}s, {gaps[1]:.2f}s")
     stored = get(payment_id)[1]
     check("payment status stored despite webhook failures", stored["status"] in ("succeeded", "failed"))
     dlq_after = wait(lambda: (n := queue_messages("payments.new.dlq") or 0) > dlq_before and n, 15)
@@ -255,7 +255,7 @@ def retry_and_dlq() -> None:
     )
 
     compose("exec", "-T", "consumer", "python", "-m", "payments_processing.presentation.cli.replay_dlq")
-    replayed = wait(lambda: len(webhooks(payment_id)) >= 6, 25)
+    replayed = wait(lambda: len(webhooks(payment_id)) >= 6, 60)
     check("make dlq-replay sends it through 3 more attempts", replayed, f"{len(webhooks(payment_id))} calls")
 
 

@@ -5,12 +5,13 @@ from payments_processing.infrastructure.broker.topology import RETRY_QUEUES
 
 
 class AttemptTest(unittest.TestCase):
-    def test_failed_attempts_one_and_two_wait_two_then_four_seconds(self):
+    def test_failed_attempts_one_and_two_wait_five_then_thirty_seconds(self):
+        """Long enough to ride out a Postgres restart instead of dead-lettering everything in flight."""
         first, second = Attempt(1).retry_queue(), Attempt(2).retry_queue()
         assert first is not None and second is not None
 
-        self.assertEqual((first.name, first.arguments["x-message-ttl"]), ("payments.new.retry.1", 2000))
-        self.assertEqual((second.name, second.arguments["x-message-ttl"]), ("payments.new.retry.2", 4000))
+        self.assertEqual((first.name, first.arguments["x-message-ttl"]), ("payments.new.retry.1", 5_000))
+        self.assertEqual((second.name, second.arguments["x-message-ttl"]), ("payments.new.retry.2", 30_000))
 
     def test_last_attempt_has_no_retry_queue(self):
         self.assertIsNone(Attempt(MAX_ATTEMPTS).retry_queue())
