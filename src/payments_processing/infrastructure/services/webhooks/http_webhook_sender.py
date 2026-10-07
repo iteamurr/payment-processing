@@ -14,7 +14,7 @@ import httpx
 from payments_processing.domain.entities.payment import Payment
 from payments_processing.domain.errors import WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
-from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
+from payments_processing.domain.webhooks import normalize_host
 from payments_processing.infrastructure.services.webhooks.serializers import WebhookPayload
 
 

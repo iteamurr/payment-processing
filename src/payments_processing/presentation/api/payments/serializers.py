@@ -11,7 +11,7 @@ from pydantic import AfterValidator, AliasPath, BaseModel, BeforeValidator, Conf
 
 from payments_processing.domain.entities.payment import PaymentRequest, PaymentStatus
 from payments_processing.domain.values.money import Currency, Money
-from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
+from payments_processing.domain.webhooks import normalize_host
 
 
 def _reject_float(value: Any) -> Any:

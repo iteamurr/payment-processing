@@ -5,7 +5,7 @@ from typing import Annotated, Any, Self
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
+from payments_processing.domain.webhooks import normalize_host
 
 
 class Config(BaseSettings):
