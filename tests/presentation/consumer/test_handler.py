@@ -1,0 +1,98 @@
+import json
+import unittest
+import uuid
+from unittest.mock import AsyncMock, Mock, create_autospec
+
+from faststream.rabbit import RabbitBroker, RabbitMessage
+
+from payments_processing.application.payments.payment_processing import PaymentProcessing
+from payments_processing.domain.errors import WebhookDeliveryError
+from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
+
+PAYMENT_ID = uuid.uuid4()
+
+
+def message(body: bytes | None = None, headers: dict | None = None) -> Mock:
+    msg = Mock(spec=RabbitMessage)
+    msg.body = json.dumps({"payment_id": str(PAYMENT_ID)}).encode() if body is None else body
+    msg.headers = headers or {}
+    msg.message_id = "m1"
+    msg.content_type = "application/json"
+    msg.ack = AsyncMock()
+    msg.reject = AsyncMock()
+    return msg
+
+
+class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.processing = create_autospec(PaymentProcessing, instance=True)
+        self.broker = create_autospec(RabbitBroker, instance=True)
+        self.handler = PaymentCreatedHandler(self.processing, self.broker)
+
+    async def test_success_is_acked(self):
+        msg = message()
+
+        await self.handler.handle(msg)
+
+        self.processing.process.assert_awaited_once_with(PAYMENT_ID)
+        msg.ack.assert_awaited_once()
+        msg.reject.assert_not_awaited()
+        self.broker.publish.assert_not_awaited()
+
+    async def test_failed_attempts_go_to_the_next_retry_queue_then_ack(self):
+        self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
+        for headers, queue, next_attempt in (
+            ({}, "payments.new.retry.1", 2),
+            ({"x-attempt": 2}, "payments.new.retry.2", 3),
+        ):
+            with self.subTest(headers=headers):
+                self.broker.publish.reset_mock()
+                msg = message(headers=headers | {"trace": "t1"})
+
+                with self.assertLogs("payments_processing.presentation.consumer.handler", "WARNING"):
+                    await self.handler.handle(msg)
+
+                kwargs = self.broker.publish.await_args.kwargs
+                self.assertEqual(self.broker.publish.await_args.args, (msg.body,))
+                self.assertEqual(kwargs["queue"].name, queue)
+                self.assertEqual(kwargs["headers"], {"trace": "t1", "x-attempt": next_attempt})
+                self.assertTrue(kwargs["persist"])
+                self.assertEqual(kwargs["message_id"], "m1")
+                msg.ack.assert_awaited_once()
+                msg.reject.assert_not_awaited()
+
+    async def test_third_failed_attempt_is_rejected_into_the_dlq(self):
+        self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
+        msg = message(headers={"x-attempt": 3})
+
+        with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
+            await self.handler.handle(msg)
+
+        msg.reject.assert_awaited_once_with()
+        msg.ack.assert_not_awaited()
+        self.broker.publish.assert_not_awaited()
+
+    async def test_malformed_body_is_dead_lettered_without_processing(self):
+        for body in (b"not-json", b'{"payment_id": "nope"}', b"{}"):
+            with self.subTest(body=body):
+                msg = message(body=body)
+
+                with self.assertLogs("payments_processing.presentation.consumer.handler", "WARNING"):
+                    await self.handler.handle(msg)
+
+                msg.reject.assert_awaited_once_with()
+                msg.ack.assert_not_awaited()
+        self.processing.process.assert_not_awaited()
+        self.broker.publish.assert_not_awaited()
+
+    async def test_retry_publish_failure_leaves_the_message_unacked(self):
+        """Unacked message is redelivered by RabbitMQ when the channel closes."""
+        self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
+        self.broker.publish.side_effect = ConnectionError("broker down")
+        msg = message()
+
+        with self.assertRaises(ConnectionError), self.assertLogs("payments_processing.presentation.consumer.handler"):
+            await self.handler.handle(msg)
+
+        msg.ack.assert_not_awaited()
+        msg.reject.assert_not_awaited()

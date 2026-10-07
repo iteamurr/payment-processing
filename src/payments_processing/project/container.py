@@ -19,6 +19,7 @@ from payments_processing.infrastructure.services.outbox.sql_outbox_repository im
 from payments_processing.infrastructure.services.payments.fake_payment_gateway import FakePaymentGateway
 from payments_processing.infrastructure.services.payments.http_webhook_sender import HttpWebhookSender
 from payments_processing.infrastructure.services.payments.sql_payment_repository import SqlPaymentRepository
+from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 from payments_processing.project.config import Config
 
 
@@ -53,4 +54,5 @@ def build_container(config: Config) -> punq.Container:
     container.register(WebhookSender, HttpWebhookSender, scope=punq.Scope.singleton, timeout_s=config.webhook_timeout_s)
     container.register(PaymentGateway, instance=FakePaymentGateway())
     container.register(PaymentProcessing, scope=punq.Scope.singleton)
+    container.register(PaymentCreatedHandler, scope=punq.Scope.singleton)
     return container
