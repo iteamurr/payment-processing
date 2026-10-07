@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock, create_autospec
 from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
-from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError
+from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
 
 PAYMENT_ID = uuid.uuid4()
@@ -110,16 +110,18 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
         msg.reject.assert_awaited_once_with()
         msg.ack.assert_not_awaited()
 
-    async def test_unknown_payment_is_dead_lettered_without_retries(self):
-        """Retrying cannot make a missing payment appear: the outbox commits it before the event exists."""
-        self.processing.process.side_effect = PaymentNotFoundError("payment not found")
-        msg = message()
+    async def test_permanent_failures_are_dead_lettered_without_retries(self):
+        """Retrying cannot make a missing payment appear or a forbidden webhook target allowed."""
+        for error in (PaymentNotFoundError("payment not found"), WebhookTargetForbiddenError("10.0.0.5")):
+            with self.subTest(error=type(error).__name__):
+                self.processing.process.side_effect = error
+                msg = message()
 
-        with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
-            await self.handler.handle(msg)
+                with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
+                    await self.handler.handle(msg)
 
-        msg.reject.assert_awaited_once_with()
-        msg.ack.assert_not_awaited()
+                msg.reject.assert_awaited_once_with()
+                msg.ack.assert_not_awaited()
         self.broker.publish.assert_not_awaited()
 
     async def test_retry_copy_publish_is_bounded_by_a_timeout(self):

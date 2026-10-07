@@ -3,26 +3,29 @@ x-app: &app
     context: .
     dockerfile: deployment/docker/Dockerfile
   environment: &app-env
-    DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
-    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:?set in .env}
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:?set in .env}:${RABBITMQ_PASSWORD:?set in .env}@rabbitmq:5672/
 
 services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: payments
-      POSTGRES_PASSWORD: payments
-      POSTGRES_DB: payments
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env}
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U payments -d payments"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 2s
       timeout: 3s
       retries: 30
 
   rabbitmq:
     image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set in .env}
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -37,7 +40,7 @@ services:
     restart: unless-stopped
     environment:
       <<: *app-env
-      API_KEY: dev-api-key
+      API_KEY: ${API_KEY:?set in .env}
     command: >-
       sh -c "alembic upgrade head
       && uvicorn payments_processing.presentation.api.app:build_app --factory --host 0.0.0.0 --port 8000"
@@ -57,6 +60,10 @@ services:
   consumer:
     <<: *app
     restart: unless-stopped
+    environment:
+      <<: *app-env
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set in .env}
+      WEBHOOK_ALLOWED_HOSTS: webhook-echo
     command: faststream run payments_processing.presentation.consumer.app:build_consumer --factory
     depends_on:
       api:
@@ -64,5 +71,7 @@ services:
 
   webhook-echo:
     build: ./tools/webhook_echo
+    environment:
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set in .env}
     ports:
       - "9000:9000"

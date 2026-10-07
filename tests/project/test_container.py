@@ -15,7 +15,9 @@ CONFIG = Config(
     database_url="postgresql+asyncpg://payments:payments@localhost/payments",
     rabbitmq_url="amqp://guest:guest@localhost/",
     api_key="secret-key",
+    webhook_secret="webhook-secret",
 )
+WITHOUT_API_KEY = CONFIG.model_copy(update={"api_key": ""})
 
 
 class ApiContainerTest(unittest.TestCase):
@@ -38,17 +40,20 @@ class ApiContainerTest(unittest.TestCase):
     def test_refuses_to_build_without_an_api_key(self):
         """An empty key would let a request with an empty X-API-Key header through."""
         with self.assertRaisesRegex(RuntimeError, "API_KEY"):
-            build_api_container(Config(database_url=CONFIG.database_url, rabbitmq_url=CONFIG.rabbitmq_url))
+            build_api_container(WITHOUT_API_KEY)
 
 
 class ConsumerContainerTest(unittest.TestCase):
     def test_resolves_the_handler_and_needs_no_api_key(self):
-        config = Config(database_url=CONFIG.database_url, rabbitmq_url=CONFIG.rabbitmq_url)
-
-        container = build_consumer_container(config)
+        container = build_consumer_container(WITHOUT_API_KEY)
 
         self.assertIsInstance(container.resolve(PaymentCreatedHandler), PaymentCreatedHandler)
 
     def test_does_not_build_the_relay(self):
         with self.assertRaises(punq.MissingDependencyError):
             build_consumer_container(CONFIG).resolve(OutboxRelay)
+
+    def test_refuses_to_build_without_a_webhook_secret(self):
+        """Unsigned webhooks would let anyone forge a payment result to the client."""
+        with self.assertRaisesRegex(RuntimeError, "WEBHOOK_SECRET"):
+            build_consumer_container(CONFIG.model_copy(update={"webhook_secret": ""}))

@@ -9,7 +9,7 @@ from typing import ClassVar
 from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
-from payments_processing.domain.errors import PaymentNotFoundError
+from payments_processing.domain.errors import PaymentNotFoundError, WebhookTargetForbiddenError
 from payments_processing.domain.messages import PaymentCreated
 from payments_processing.infrastructure.broker.retry import Attempt
 
@@ -37,8 +37,8 @@ class PaymentCreatedHandler:
 
         try:
             await self.processing.process(event.payment_id)
-        except PaymentNotFoundError:
-            self._logger.exception("payment %s does not exist, dead-lettering without retries", event.payment_id)
+        except (PaymentNotFoundError, WebhookTargetForbiddenError):
+            self._logger.exception("payment %s cannot succeed on retry, dead-lettering", event.payment_id)
             await message.reject()
         except Exception:
             await self._retry_or_dead_letter(message, event.payment_id, attempt)

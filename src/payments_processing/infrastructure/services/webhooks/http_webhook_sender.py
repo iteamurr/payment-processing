@@ -1,30 +1,42 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import hashlib
+import hmac
+import ipaddress
+import socket
+import time
+from collections.abc import Set
+from dataclasses import dataclass, field
 
 import httpx
 
 from payments_processing.domain.entities.payment import Payment
-from payments_processing.domain.errors import WebhookDeliveryError
+from payments_processing.domain.errors import WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
 from payments_processing.infrastructure.services.webhooks.serializers import WebhookPayload
 
 
 @dataclass
 class HttpWebhookSender(WebhookSender):
-    """Redirects are not followed, so 3xx counts as a failed delivery."""
+    """Signs each webhook with HMAC-SHA256 over "{timestamp}.{body}"; redirects are not followed, so 3xx fails.
+
+    Refuses targets that resolve to non-public addresses unless their host is in allowed_hosts. The check runs
+    before httpx resolves the name again, so DNS rebinding between the two lookups is not covered."""
 
     client: httpx.AsyncClient
+    secret: str
     timeout_s: float = 10.0
+    allowed_hosts: Set[str] = field(default_factory=frozenset[str])
 
     async def send(self, payment: Payment) -> None:
         """The deadline covers the whole request (httpx timeouts are per phase); the response body is never read."""
         url = payment.webhook_url
-        body = WebhookPayload.model_validate(payment).model_dump(mode="json")
+        await self._check_target(httpx.URL(url))
+        body = WebhookPayload.model_validate(payment).model_dump_json().encode()
         try:
             async with asyncio.timeout(self.timeout_s):
-                async with self.client.stream("POST", url, json=body) as response:
+                async with self.client.stream("POST", url, content=body, headers=self._headers(body)) as response:
                     status = response.status_code
         except TimeoutError as exc:
             raise WebhookDeliveryError(f"webhook {url}: timed out after {self.timeout_s}s") from exc
@@ -32,3 +44,25 @@ class HttpWebhookSender(WebhookSender):
             raise WebhookDeliveryError(f"webhook {url}: {exc!r}") from exc
         if not httpx.codes.is_success(status):
             raise WebhookDeliveryError(f"webhook {url}: HTTP {status}")
+
+    async def _check_target(self, url: httpx.URL) -> None:
+        if url.host in self.allowed_hosts:
+            return
+        port = url.port or (443 if url.scheme == "https" else 80)
+        try:
+            addresses = await asyncio.get_running_loop().getaddrinfo(url.host, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise WebhookDeliveryError(f"webhook {url}: cannot resolve {url.host}: {exc}") from exc
+        for *_, sockaddr in addresses:
+            address = ipaddress.ip_address(str(sockaddr[0]).split("%")[0])
+            if not address.is_global:
+                raise WebhookTargetForbiddenError(f"webhook {url}: {url.host} resolves to non-public {address}")
+
+    def _headers(self, body: bytes) -> dict[str, str]:
+        timestamp = str(int(time.time()))
+        signature = hmac.new(self.secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
+        return {
+            "Content-Type": "application/json",
+            "X-Webhook-Timestamp": timestamp,
+            "X-Webhook-Signature": f"sha256={signature}",
+        }

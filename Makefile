@@ -1,6 +1,9 @@
 .PHONY: help lint fix typecheck test e2e dlq-replay
 .DEFAULT_GOAL := help
 
+-include .env
+export
+
 help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "\033[36m%-11s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 

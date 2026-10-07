@@ -19,3 +19,7 @@ class WebhookDeliveryError(Exception):
 
 class InvalidAmountError(ValueError):
     """Amount is not positive or has more than 2 decimal places."""
+
+
+class WebhookTargetForbiddenError(Exception):
+    """webhook_url resolves to a loopback, private or otherwise non-public address."""

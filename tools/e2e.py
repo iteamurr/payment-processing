@@ -1,12 +1,13 @@
 """End-to-end scenario against the docker compose stack, through its public interfaces only.
 
-Run with `make e2e`. It stops and starts the consumer and RabbitMQ along the way and brings the
+Run with `make e2e`, which loads .env. It stops and starts the consumer and RabbitMQ along the way and brings the
 whole stack back up at the end, even after a failure. Exits with 1 if any check fails.
 """
 
 import base64
 import concurrent.futures as cf
 import json
+import os
 import re
 import subprocess
 import sys
@@ -21,9 +22,10 @@ from typing import Any
 
 API = "http://localhost:8000"
 MGMT = "http://localhost:15672/api"
-API_KEY = "dev-api-key"
+API_KEY = os.environ["API_KEY"]
+RABBITMQ_CREDENTIALS = f"{os.environ['RABBITMQ_USER']}:{os.environ['RABBITMQ_PASSWORD']}"
 RUN = uuid.uuid4().hex[:8]
-WEBHOOK_LOG = re.compile(r"^(\S+ \S+) POST (\S+) -> (\d+) (.*)$")
+WEBHOOK_LOG = re.compile(r"^(\S+ \S+) POST (\S+) -> (\d+) signature=(\w+) (.*)$")
 
 results: list[tuple[str, bool]] = []
 
@@ -120,7 +122,7 @@ def outbox_rows(payment_id: str, published: bool | None = None) -> int:
 
 
 def management(method: str, path: str, body: Any = None):
-    token = base64.b64encode(b"guest:guest").decode()
+    token = base64.b64encode(RABBITMQ_CREDENTIALS.encode()).decode()
     return http(method, f"{MGMT}{path}", body, {"Authorization": f"Basic {token}"})
 
 
@@ -129,13 +131,14 @@ def queue_messages(name: str) -> int | None:
     return body["messages"] if status == 200 else None
 
 
-def webhooks(payment_id: str) -> list[tuple[datetime, str, int, dict[str, Any]]]:
+def webhooks(payment_id: str) -> list[tuple[datetime, str, int, str, dict[str, Any]]]:
+    """(time, path, status, signature check, body) of every webhook webhook-echo received for the payment."""
     calls = []
     for line in compose("logs", "--no-log-prefix", "webhook-echo").splitlines():
         match = WEBHOOK_LOG.match(line)
-        if match and payment_id in match.group(4):
+        if match and payment_id in match.group(5):
             at = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S,%f")
-            calls.append((at, match.group(2), int(match.group(3)), json.loads(match.group(4))))
+            calls.append((at, match.group(2), int(match.group(3)), match.group(4), json.loads(match.group(5))))
     return calls
 
 
@@ -198,7 +201,8 @@ def happy_path() -> None:
         "currency": "USD",
         "processed_at": done["processed_at"],
     }
-    check("webhook body matches the stored payment", calls and calls[0][3] == expected, calls and calls[0][3])
+    check("webhook body matches the stored payment", calls and calls[0][4] == expected, calls and calls[0][4])
+    check("webhook signature verifies with the shared secret", calls and calls[0][3] == "ok", calls and calls[0][3])
     check("outbox event published", outbox_rows(payment_id, published=True) == 1)
 
 

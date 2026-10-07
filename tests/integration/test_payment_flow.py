@@ -94,7 +94,7 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         client = httpx.AsyncClient()
         self.addAsyncCleanup(client.aclose)
         gateway = FakePaymentGateway(min_delay_s=0, max_delay_s=0, success_rate=1.0)
-        sender = HttpWebhookSender(client, timeout_s=5)
+        sender = HttpWebhookSender(client, secret="webhook-secret", timeout_s=5, allowed_hosts=frozenset({"127.0.0.1"}))
         processing = PaymentProcessing(PaymentLookup(self.repository), self.repository, gateway, sender)
 
         broker = build_broker(RABBITMQ_URL, prefetch_count=1)

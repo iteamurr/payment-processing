@@ -100,6 +100,8 @@
 9. **Зачем сервис `webhook-echo`?** Dev-приёмник webhook, чтобы результат был виден без внешних сервисов. Пути `/fail*` отвечают 500 — так проверяются retry и DLQ.
 10. **Что происходит с сообщением в DLQ?** Если все три попытки упали до списания (например, была недоступна БД), платёж остаётся `pending`; если не дошёл только webhook — статус уже итоговый. Автоматически из DLQ ничего не возвращается: после устранения причины `make dlq-replay` переносит сообщения обратно в `payments.new` как первые попытки.
 11. **`X-API-Key` нужен и на служебных эндпоинтах?** Нет. Ключ обязателен на всех эндпоинтах API (`/api/v1/*`). `/health` (healthcheck в compose), `/docs` и `/openapi.json` (документация) открыты.
+12. **Можно ли указать любой `webhook_url`?** Только адрес, который разрешается в публичные IP. Перед отправкой consumer резолвит хост и не шлёт запрос на loopback, частные сети, link-local (включая `169.254.169.254`) и т. п. — иначе клиент мог бы через webhook обращаться к нашей внутренней сети. Исключения задаются `WEBHOOK_ALLOWED_HOSTS` (в compose это `webhook-echo`). Такое сообщение сразу уходит в DLQ без повторов. Ограничение: httpx резолвит имя заново, поэтому смена DNS-записи между проверкой и подключением (DNS rebinding) не закрыта.
+13. **Удаляются ли записи outbox?** Нет, опубликованные записи остаются с `published_at`. Для продакшена нужна периодическая чистка, например удаление записей старше нескольких дней.
 
 ## Архитектура
 
@@ -122,16 +124,19 @@ payments.new ──► consumer: шлюз (2–5 с) → статус в БД �
 ## Запуск
 
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
+
+Логины, пароли, `API_KEY` и `WEBHOOK_SECRET` берутся из `.env`; ниже в примерах значения из `.env.example`.
 
 | Сервис | Адрес |
 |---|---|
 | API (Swagger: `/docs`) | http://localhost:8000 |
-| RabbitMQ UI (guest / guest) | http://localhost:15672 |
+| RabbitMQ UI (`RABBITMQ_USER` / `RABBITMQ_PASSWORD`) | http://localhost:15672 |
 | webhook-echo | http://localhost:9000, логи: `docker compose logs -f webhook-echo` |
 
-API-ключ в compose: `dev-api-key`. Миграции применяет сервис `api` при старте. Несколько consumer: `docker compose up --scale consumer=3`.
+Миграции применяет сервис `api` при старте. Несколько consumer: `docker compose up --scale consumer=3`.
 
 ## Примеры
 
@@ -164,8 +169,19 @@ curl -s http://localhost:8000/api/v1/payments/15e41556-aa0a-4475-879d-7b38d835ca
 Webhook в логах `webhook-echo`:
 
 ```
-POST /ok -> 200 {"payment_id":"15e41556-aa0a-4475-879d-7b38d835ca0c","status":"succeeded","amount":"100.50","currency":"RUB","processed_at":"2026-10-07T18:02:44.960146Z"}
+POST /ok -> 200 signature=ok {"payment_id":"15e41556-aa0a-4475-879d-7b38d835ca0c","status":"succeeded","amount":"100.50","currency":"RUB","processed_at":"2026-10-07T18:02:44.960146Z"}
 ```
+
+### Подпись webhook
+
+Каждый webhook подписан HMAC-SHA256 на секрете `WEBHOOK_SECRET`:
+
+```
+X-Webhook-Timestamp: 1791403957
+X-Webhook-Signature: sha256=<hex от HMAC-SHA256(WEBHOOK_SECRET, "{timestamp}.{тело запроса}")>
+```
+
+Получатель пересчитывает подпись по сырому телу и сравнивает её через constant-time сравнение; запросы со старым timestamp стоит отбрасывать, это защищает от повторной отправки перехваченного запроса. Пример проверки — в `tools/webhook_echo/server.py`.
 
 DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/fail"`. Через ~6 с (три попытки) сообщение появится в очереди `payments.new.dlq` в RabbitMQ UI. Вернуть его в обработку: `make dlq-replay`.
 
@@ -178,13 +194,13 @@ make test        # unit-тесты; тесты с БД и брокером пр�
 make e2e         # сквозной сценарий через HTTP против compose-стека
 ```
 
-`make e2e` поднимает стек и проверяет его только через внешние интерфейсы (HTTP API, логи `webhook-echo`, RabbitMQ management API, Postgres): авторизацию, валидацию, полный путь до webhook, идемпотентность (включая 10 параллельных запросов), retry с задержками 2 и 4 с, DLQ и `dlq-replay`, пачку из 20 платежей, остановку consumer и RabbitMQ. По ходу перезапускает consumer и RabbitMQ, в конце возвращает стек в рабочее состояние.
+`make e2e` (нужен `.env`) поднимает стек и проверяет его только через внешние интерфейсы (HTTP API, логи `webhook-echo`, RabbitMQ management API, Postgres): авторизацию, валидацию, полный путь до webhook, идемпотентность (включая 10 параллельных запросов), подпись webhook, retry с задержками 2 и 4 с, DLQ и `dlq-replay`, пачку из 20 платежей, остановку consumer и RabbitMQ. По ходу перезапускает consumer и RabbitMQ, в конце возвращает стек в рабочее состояние.
 
 С Postgres и RabbitMQ. `api` и `consumer` должны быть остановлены, иначе они заберут outbox-записи и сообщения тестов. Тесты очищают таблицы и очереди dev-окружения:
 
 ```bash
 docker compose up -d --wait postgres rabbitmq
 DATABASE_URL=postgresql+asyncpg://payments:payments@localhost:5432/payments \
-RABBITMQ_URL=amqp://guest:guest@localhost:5672/ \
+RABBITMQ_URL=amqp://payments:payments@localhost:5672/ \
 make test
 ```

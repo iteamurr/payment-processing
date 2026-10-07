@@ -56,10 +56,19 @@ def build_api_container(config: Config) -> punq.Container:
 
 def build_consumer_container(config: Config) -> punq.Container:
     """consumer process: charging, status updates, webhooks and retries."""
+    if not config.webhook_secret:
+        raise RuntimeError("environment variable WEBHOOK_SECRET is required by the consumer")
     container, _ = _build_shared(config)
     container.register(PaymentLookup, scope=punq.Scope.singleton)
     container.register(httpx.AsyncClient, instance=httpx.AsyncClient())
-    container.register(WebhookSender, HttpWebhookSender, scope=punq.Scope.singleton, timeout_s=config.webhook_timeout_s)
+    container.register(
+        WebhookSender,
+        HttpWebhookSender,
+        scope=punq.Scope.singleton,
+        secret=config.webhook_secret,
+        timeout_s=config.webhook_timeout_s,
+        allowed_hosts=config.webhook_allowed_hosts,
+    )
     container.register(PaymentGateway, instance=FakePaymentGateway())
     container.register(PaymentProcessing, scope=punq.Scope.singleton)
     container.register(PaymentCreatedHandler, scope=punq.Scope.singleton)

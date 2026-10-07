@@ -1,5 +1,8 @@
 import asyncio
+import hashlib
+import hmac
 import json
+import time
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -7,11 +10,12 @@ from decimal import Decimal
 import httpx
 
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
-from payments_processing.domain.errors import WebhookDeliveryError
+from payments_processing.domain.errors import WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.infrastructure.services.webhooks.http_webhook_sender import HttpWebhookSender
 from tests.mocks import payment_request
 
 URL = "http://hooks.example/ok"
+SECRET = "webhook-secret"
 
 
 class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
@@ -19,10 +23,15 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
         self.payment = Payment.build(payment_request(amount=Decimal("100.5"), webhook_url=URL), "key-1")
         self.payment.complete(PaymentStatus.SUCCEEDED, datetime(2026, 10, 7, 12, 0, tzinfo=UTC))
 
-    def sender(self, handler, timeout_s: float = 1.0) -> HttpWebhookSender:
+    def sender(self, handler, timeout_s: float = 1.0, allowed_hosts=frozenset({"hooks.example"})) -> HttpWebhookSender:
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         self.addAsyncCleanup(client.aclose)
-        return HttpWebhookSender(client, timeout_s=timeout_s)
+        return HttpWebhookSender(client, secret=SECRET, timeout_s=timeout_s, allowed_hosts=allowed_hosts)
+
+    def payment_to(self, url: str) -> Payment:
+        payment = Payment.build(payment_request(webhook_url=url), "key-2")
+        payment.complete(PaymentStatus.SUCCEEDED, datetime(2026, 10, 7, 12, 0, tzinfo=UTC))
+        return payment
 
     async def test_posts_the_payment_result_as_json_to_its_webhook_url(self):
         requests = []
@@ -83,6 +92,63 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, stream=ExplodingStream())
 
         await self.sender(handler).send(self.payment)
+
+    async def test_signs_timestamp_and_body_with_the_shared_secret(self):
+        """The receiver recomputes the HMAC over "{timestamp}.{body}" and rejects stale timestamps."""
+        requests = []
+
+        def handler(request):
+            requests.append(request)
+            return httpx.Response(200)
+
+        await self.sender(handler).send(self.payment)
+
+        [request] = requests
+        timestamp = request.headers["X-Webhook-Timestamp"]
+        expected = hmac.new(SECRET.encode(), f"{timestamp}.".encode() + request.content, hashlib.sha256).hexdigest()
+        self.assertEqual(request.headers["X-Webhook-Signature"], f"sha256={expected}")
+        self.assertLess(abs(int(timestamp) - time.time()), 5)
+        self.assertEqual(request.headers["Content-Type"], "application/json")
+
+    async def test_internal_targets_are_refused_without_a_request(self):
+        """SSRF guard: a client must not make the consumer call into our network or the cloud metadata service."""
+        requests = []
+        sender = self.sender(lambda request: requests.append(request) or httpx.Response(200))
+        for url in (
+            "http://127.0.0.1:5432/",
+            "http://localhost/hook",
+            "http://10.0.0.5/hook",
+            "http://169.254.169.254/latest/meta-data",
+            "http://[::1]/hook",
+        ):
+            with self.subTest(url=url), self.assertRaises(WebhookTargetForbiddenError):
+                await sender.send(self.payment_to(url))
+        self.assertEqual(requests, [])
+
+    async def test_public_address_is_allowed(self):
+        requests = []
+        sender = self.sender(lambda request: requests.append(request) or httpx.Response(200))
+
+        await sender.send(self.payment_to("http://93.184.216.34/hook"))
+
+        self.assertEqual(len(requests), 1)
+
+    async def test_allowed_host_may_be_internal(self):
+        """docker compose sends to webhook-echo on the private network; it is allowed by name."""
+        requests = []
+        sender = self.sender(
+            lambda request: requests.append(request) or httpx.Response(200), allowed_hosts=frozenset({"127.0.0.1"})
+        )
+
+        await sender.send(self.payment_to("http://127.0.0.1:9000/ok"))
+
+        self.assertEqual(len(requests), 1)
+
+    async def test_unresolvable_host_is_a_retryable_delivery_error(self):
+        sender = self.sender(lambda request: httpx.Response(200), allowed_hosts=frozenset())
+
+        with self.assertRaises(WebhookDeliveryError):
+            await sender.send(self.payment_to("http://nonexistent.invalid/hook"))
 
 
 class ExplodingStream(httpx.AsyncByteStream):
