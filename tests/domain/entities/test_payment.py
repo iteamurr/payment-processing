@@ -2,9 +2,11 @@ import unittest
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
-from payments_processing.domain.entities.payment import Currency, Payment, PaymentStatus
+from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.domain.errors import InvalidPaymentTransitionError
+from payments_processing.domain.values.money import Currency
 from tests.mocks import payment_request
 
 
@@ -29,13 +31,14 @@ class PaymentRequestFingerprintTest(unittest.TestCase):
 
     def test_fingerprint_changes_with_any_field(self):
         base = payment_request().fingerprint()
-        for change in (
+        changes: tuple[dict[str, Any], ...] = (
             {"amount": Decimal("100.51")},
             {"currency": Currency.USD},
             {"description": "Order #2"},
             {"metadata": {}},
             {"webhook_url": "http://hooks.example/other"},
-        ):
+        )
+        for change in changes:
             with self.subTest(change=change):
                 self.assertNotEqual(payment_request(**change).fingerprint(), base)
 
@@ -48,16 +51,11 @@ class PaymentTest(unittest.TestCase):
 
         self.assertIsInstance(payment.id, uuid.UUID)
         self.assertIs(payment.status, PaymentStatus.PENDING)
-        self.assertEqual(payment.amount, Decimal("100.50"))
+        self.assertEqual(payment.money, request.money)
         self.assertEqual(payment.idempotency_key, "key-1")
         self.assertEqual(payment.request_hash, request.fingerprint())
         self.assertIsNotNone(payment.created_at.tzinfo)
         self.assertIsNone(payment.processed_at)
-
-    def test_build_normalizes_amount_to_two_decimals(self):
-        payment = Payment.build(payment_request(amount=Decimal("100.5")), "key-1")
-
-        self.assertEqual(str(payment.amount), "100.50")
 
     def test_pending_payment_completes_to_either_final_status(self):
         processed_at = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)

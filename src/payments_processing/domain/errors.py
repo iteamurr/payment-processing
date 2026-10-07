@@ -15,3 +15,7 @@ class InvalidPaymentTransitionError(ValueError):
 
 class WebhookDeliveryError(Exception):
     """Webhook endpoint did not accept the notification."""
+
+
+class InvalidAmountError(ValueError):
+    """Amount is not positive or has more than 2 decimal places."""

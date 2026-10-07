@@ -49,24 +49,41 @@ class OutboxRelayTest(unittest.IsolatedAsyncioTestCase):
     async def test_run_survives_publish_errors(self):
         outbox = InMemoryOutboxRepository(events(1))
         self.publisher.publish.side_effect = [ConnectionError("broker down"), None]
-        shutdown = asyncio.Event()
 
         with self.assertLogs("payments_processing.application.outbox.outbox_relay", "ERROR"):
-            task = asyncio.create_task(self.relay(outbox, poll_interval_s=0.01).run(shutdown))
+            task = asyncio.create_task(self.relay(outbox, poll_interval_s=0.01).run())
+            self.addCleanup(task.cancel)
             async with asyncio.timeout(2):
                 while outbox.pending:
                     await asyncio.sleep(0.01)
-        shutdown.set()
-        await task
 
         self.assertEqual(len(outbox.published), 1)
 
-    async def test_run_returns_promptly_on_shutdown(self):
-        shutdown = asyncio.Event()
-        task = asyncio.create_task(self.relay(InMemoryOutboxRepository(), poll_interval_s=60).run(shutdown))
+    async def test_cancel_stops_run_while_waiting_for_the_next_poll(self):
+        task = asyncio.create_task(self.relay(InMemoryOutboxRepository(), poll_interval_s=60).run())
         await asyncio.sleep(0.01)
 
-        shutdown.set()
+        task.cancel()
 
-        async with asyncio.timeout(1):
+        with self.assertRaises(asyncio.CancelledError):
+            async with asyncio.timeout(1):
+                await task
+
+    async def test_cancel_mid_publish_leaves_the_batch_pending(self):
+        """Shutdown cancels the relay; a half-published batch is rolled back and re-sent later."""
+        outbox = InMemoryOutboxRepository(events(2))
+        publishing = asyncio.Event()
+
+        async def hang(event):
+            publishing.set()
+            await asyncio.sleep(60)
+
+        self.publisher.publish.side_effect = hang
+        task = asyncio.create_task(self.relay(outbox).run())
+        await publishing.wait()
+
+        task.cancel()
+
+        with self.assertRaises(asyncio.CancelledError):
             await task
+        self.assertEqual((len(outbox.pending), outbox.published), (2, []))

@@ -37,7 +37,16 @@ class RabbitEventPublisherTest(unittest.IsolatedAsyncioTestCase):
             persist=True,
             message_id=str(self.event.id),
             message_type="payment.created",
+            timeout=10.0,
         )
+
+    async def test_publish_is_bounded_by_the_timeout(self):
+        """A connection blocked by a RabbitMQ alarm would otherwise hold the relay's row locks indefinitely."""
+        self.broker.publish.return_value = Basic.Ack()
+
+        await RabbitEventPublisher(self.broker, timeout_s=2.5).publish(self.event)
+
+        self.assertEqual(self.broker.publish.await_args.kwargs["timeout"], 2.5)
 
     async def test_nack_raises(self):
         self.broker.publish.return_value = Basic.Nack()

@@ -2,7 +2,9 @@ import asyncio
 import json
 import threading
 import unittest
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 
 import httpx
 from sqlalchemy import select, text
@@ -10,7 +12,7 @@ from sqlalchemy import select, text
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
 from payments_processing.application.payments.payment_processing import PaymentProcessing
-from payments_processing.domain.entities.payment import PaymentStatus
+from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.infrastructure.broker.rabbit import (
     ATTEMPT_HEADER,
     PAYMENTS_NEW,
@@ -43,7 +45,7 @@ def webhook_receiver(calls: list[tuple[str, dict]]) -> type[BaseHTTPRequestHandl
             self.send_header("Content-Length", "0")
             self.end_headers()
 
-        def log_message(self, *args):
+        def log_message(self, format: str, *args: Any) -> None:
             pass
 
     return Handler
@@ -103,6 +105,11 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         self.addAsyncCleanup(broker.stop)
         return broker
 
+    async def stored(self, payment_id: uuid.UUID) -> Payment:
+        payment = await self.repository.get(payment_id)
+        assert payment is not None
+        return payment
+
     async def test_created_payment_is_charged_stored_and_notified(self):
         payment = await self.creation.create(payment_request(webhook_url=f"{self.webhook_base}/ok"), "it-ok")
 
@@ -115,11 +122,11 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         path, body = self.calls[0]
         self.assertEqual(path, "/ok")
         self.assertEqual((body["payment_id"], body["status"]), (str(payment.id), "succeeded"))
-        stored = await self.repository.get(payment.id)
+        stored = await self.stored(payment.id)
         self.assertIs(stored.status, PaymentStatus.SUCCEEDED)
         self.assertIsNotNone(stored.processed_at)
         async with self.sessions() as session:
-            self.assertIsNotNone((await session.scalar(select(OutboxRow))).published_at)
+            self.assertIsNotNone((await session.scalars(select(OutboxRow))).one().published_at)
 
     async def test_webhook_failing_on_every_attempt_lands_in_the_dlq(self):
         payment = await self.creation.create(payment_request(webhook_url=f"{self.webhook_base}/fail"), "it-fail")
@@ -134,4 +141,4 @@ class PaymentFlowTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(message.body), {"payment_id": str(payment.id)})
         self.assertEqual(message.headers[ATTEMPT_HEADER], 3)
         self.assertEqual(len(self.calls), 3)
-        self.assertIs((await self.repository.get(payment.id)).status, PaymentStatus.SUCCEEDED)
+        self.assertIs((await self.stored(payment.id)).status, PaymentStatus.SUCCEEDED)

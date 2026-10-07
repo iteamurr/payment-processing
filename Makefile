@@ -1,4 +1,4 @@
-.PHONY: help lint fix test
+.PHONY: help lint fix typecheck test
 .DEFAULT_GOAL := help
 
 help: ## Show this help
@@ -10,6 +10,9 @@ lint: ## Run ruff check, no changes made
 fix: ## Run ruff check --fix, then ruff format
 	poetry run ruff check --fix .
 	poetry run ruff format .
+
+typecheck: ## Run pyright (strict for src and migrations)
+	poetry run pyright
 
 test: ## Run all tests (DB/broker tests skip without DATABASE_URL / RABBITMQ_URL)
 	poetry run python -m unittest discover

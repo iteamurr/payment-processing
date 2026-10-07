@@ -19,15 +19,19 @@ class SqlPaymentRepositoryTest(DatabaseTestCase):
         self.payment = Payment.build(payment_request(metadata={"order": {"id": 1}, "note": "привет"}), "key-1")
         self.event = OutboxEvent.payment_created(self.payment.id)
 
+    async def stored(self) -> Payment:
+        payment = await self.repository.get(self.payment.id)
+        assert payment is not None
+        return payment
+
     async def outbox_rows(self) -> list[OutboxRow]:
         async with self.sessions() as session:
             return list(await session.scalars(select(OutboxRow)))
 
-    async def test_add_round_trips_every_field(self):
-        self.assertTrue(await self.repository.add(self.payment, self.event))
+    async def test_add_returns_the_payment_and_round_trips_every_field(self):
+        self.assertEqual(await self.repository.add(self.payment, self.event), self.payment)
 
-        self.assertEqual(await self.repository.get(self.payment.id), self.payment)
-        self.assertEqual(await self.repository.get_by_idempotency_key("key-1"), self.payment)
+        self.assertEqual(await self.stored(), self.payment)
 
     async def test_add_stores_the_outbox_event_with_the_payment(self):
         await self.repository.add(self.payment, self.event)
@@ -38,28 +42,29 @@ class SqlPaymentRepositoryTest(DatabaseTestCase):
         self.assertEqual(row.payload, self.event.payload)
         self.assertIsNone(row.published_at)
 
-    async def test_taken_idempotency_key_adds_nothing(self):
+    async def test_taken_idempotency_key_returns_the_stored_payment_and_adds_nothing(self):
         await self.repository.add(self.payment, self.event)
         duplicate = Payment.build(payment_request(amount=Decimal("1.00")), "key-1")
 
-        self.assertFalse(await self.repository.add(duplicate, OutboxEvent.payment_created(duplicate.id)))
+        stored = await self.repository.add(duplicate, OutboxEvent.payment_created(duplicate.id))
+
+        self.assertEqual(stored, self.payment)
         self.assertIsNone(await self.repository.get(duplicate.id))
         self.assertEqual(len(await self.outbox_rows()), 1)
 
-    async def test_unknown_lookups_return_none(self):
+    async def test_unknown_id_returns_none(self):
         self.assertIsNone(await self.repository.get(uuid.uuid4()))
-        self.assertIsNone(await self.repository.get_by_idempotency_key("missing"))
 
     async def test_save_result_completes_a_pending_payment_once(self):
         await self.repository.add(self.payment, self.event)
-        first = await self.repository.get(self.payment.id)
-        second = await self.repository.get(self.payment.id)
+        first = await self.stored()
+        second = await self.stored()
         first.complete(PaymentStatus.SUCCEEDED, datetime.now(UTC))
         second.complete(PaymentStatus.FAILED, datetime.now(UTC))
 
         self.assertTrue(await self.repository.save_result(first))
         self.assertFalse(await self.repository.save_result(second))
 
-        stored = await self.repository.get(self.payment.id)
+        stored = await self.stored()
         self.assertIs(stored.status, PaymentStatus.SUCCEEDED)
         self.assertEqual(stored.processed_at, first.processed_at)

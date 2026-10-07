@@ -105,6 +105,33 @@ class APITest(unittest.TestCase):
                 self.assertEqual(self.create(body=BODY | change).status_code, 422)
         self.assertEqual(self.repository.payments, {})
 
+    def test_fractional_json_number_amount_is_rejected(self):
+        """json.loads parses it through float: 1234567890123456.78 would be stored as ...456.80."""
+        for amount in (1234567890123456.78, 100.5):
+            with self.subTest(amount=amount):
+                self.assertEqual(self.create(body=BODY | {"amount": amount}).status_code, 422)
+        self.assertEqual(self.repository.payments, {})
+
+    def test_amount_as_string_or_integer_is_exact(self):
+        for amount, stored in (("1234567890123456.78", "1234567890123456.78"), (100, "100.00")):
+            with self.subTest(amount=amount):
+                response = self.create(body=BODY | {"amount": amount}, idempotency_key=f"key-{amount}")
+                self.assertEqual(response.status_code, 202)
+                payment = self.repository.payments[uuid.UUID(response.json()["payment_id"])]
+                self.assertEqual(str(payment.money.amount), stored)
+
+    def test_nul_character_returns_422(self):
+        """Postgres TEXT and JSONB reject \\u0000; it must not reach the database as a 500."""
+        for change in (
+            {"description": "a\x00b"},
+            {"metadata": {"note": "a\x00b"}},
+            {"metadata": {"a\x00b": 1}},
+            {"metadata": {"nested": [{"note": "\x00"}]}},
+        ):
+            with self.subTest(change=change):
+                self.assertEqual(self.create(body=BODY | change).status_code, 422)
+        self.assertEqual(self.repository.payments, {})
+
     def test_get_returns_all_payment_fields(self):
         payment_id = self.create().json()["payment_id"]
 

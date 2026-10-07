@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 from datetime import UTC, datetime
@@ -18,10 +19,10 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
         self.payment = Payment.build(payment_request(amount=Decimal("100.5"), webhook_url=URL), "key-1")
         self.payment.complete(PaymentStatus.SUCCEEDED, datetime(2026, 10, 7, 12, 0, tzinfo=UTC))
 
-    def sender(self, handler) -> HttpWebhookSender:
+    def sender(self, handler, timeout_s: float = 1.0) -> HttpWebhookSender:
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
         self.addAsyncCleanup(client.aclose)
-        return HttpWebhookSender(client, timeout_s=1.0)
+        return HttpWebhookSender(client, timeout_s=timeout_s)
 
     async def test_posts_the_payment_result_as_json_to_its_webhook_url(self):
         requests = []
@@ -65,3 +66,26 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
 
                 with self.assertRaises(WebhookDeliveryError):
                     await self.sender(handler).send(self.payment)
+
+    async def test_timeout_bounds_the_whole_request(self):
+        """httpx timeouts are per phase: a peer trickling bytes would never trip them."""
+
+        async def handler(request):
+            await asyncio.sleep(1)
+            return httpx.Response(200)
+
+        with self.assertRaisesRegex(WebhookDeliveryError, "timed out"):
+            async with asyncio.timeout(0.5):
+                await self.sender(handler, timeout_s=0.05).send(self.payment)
+
+    async def test_response_body_is_not_read(self):
+        def handler(request):
+            return httpx.Response(200, stream=ExplodingStream())
+
+        await self.sender(handler).send(self.payment)
+
+
+class ExplodingStream(httpx.AsyncByteStream):
+    async def __aiter__(self):
+        raise AssertionError("response body was read")
+        yield b""

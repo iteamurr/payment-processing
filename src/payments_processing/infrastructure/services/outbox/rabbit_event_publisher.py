@@ -17,6 +17,7 @@ class PublishNotConfirmedError(ConnectionError):
 @dataclass
 class RabbitEventPublisher(EventPublisher):
     broker: RabbitBroker
+    timeout_s: float = 10.0
 
     async def publish(self, event: OutboxEvent) -> None:
         confirmation = await self.broker.publish(
@@ -26,6 +27,7 @@ class RabbitEventPublisher(EventPublisher):
             persist=True,
             message_id=str(event.id),
             message_type=event.event_type,
+            timeout=self.timeout_s,
         )
         if not isinstance(confirmation, Basic.Ack):
             raise PublishNotConfirmedError(f"event {event.id}: broker answered {confirmation!r}")

@@ -35,6 +35,7 @@ services:
 
   api:
     <<: *app
+    restart: unless-stopped
     command: >-
       sh -c "alembic upgrade head
       && uvicorn payments_processing.presentation.api.app:build_app --factory --host 0.0.0.0 --port 8000"
@@ -53,6 +54,7 @@ services:
 
   consumer:
     <<: *app
+    restart: unless-stopped
     command: faststream run payments_processing.presentation.consumer.app:build_consumer --factory
     depends_on:
       api:

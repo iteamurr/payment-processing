@@ -73,7 +73,7 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
         self.broker.publish.assert_not_awaited()
 
     async def test_malformed_body_is_dead_lettered_without_processing(self):
-        for body in (b"not-json", b'{"payment_id": "nope"}', b"{}"):
+        for body in (b"not-json", b"\xff", b"[]", b"{}", b'{"payment_id": 5}', b'{"payment_id": "nope"}'):
             with self.subTest(body=body):
                 msg = message(body=body)
 

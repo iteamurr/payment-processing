@@ -10,8 +10,8 @@ from sqlalchemy import text
 
 from payments_processing.infrastructure.db.session import build_engine, build_sessionmaker
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+RABBITMQ_URL = os.environ.get("RABBITMQ_URL", "")
 requires_database = unittest.skipUnless(DATABASE_URL, "DATABASE_URL is not set")
 requires_rabbitmq = unittest.skipUnless(RABBITMQ_URL, "RABBITMQ_URL is not set")
 

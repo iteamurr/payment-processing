@@ -21,7 +21,8 @@ build-backend = "poetry.core.masonry.api"
 
 [dependency-groups]
 dev = [
-    "ruff (>=0.16.8,<0.17.0)"
+    "ruff (>=0.16.8,<0.17.0)",
+    "pyright (>=1.1.400)"
 ]
 
 [tool.ruff]
@@ -34,3 +35,9 @@ ignore = ["B008"]  # resolve_depends(...) / Header(...) as FastAPI defaults is t
 
 [tool.ruff.lint.isort]
 known-first-party = ["payments_processing"]
+
+[tool.pyright]
+include = ["src", "tests", "migrations"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+strict = ["src", "migrations"]

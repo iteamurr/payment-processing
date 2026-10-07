@@ -13,10 +13,11 @@ from tests.live_services import RABBITMQ_URL, requires_rabbitmq
 
 class RetryQueueTest(unittest.TestCase):
     def test_failed_attempts_one_and_two_wait_two_then_four_seconds(self):
-        self.assertEqual(retry_queue(1).name, "payments.new.retry.1")
-        self.assertEqual(retry_queue(1).arguments["x-message-ttl"], 2000)
-        self.assertEqual(retry_queue(2).name, "payments.new.retry.2")
-        self.assertEqual(retry_queue(2).arguments["x-message-ttl"], 4000)
+        first, second = retry_queue(1), retry_queue(2)
+        assert first is not None and second is not None
+
+        self.assertEqual((first.name, first.arguments["x-message-ttl"]), ("payments.new.retry.1", 2000))
+        self.assertEqual((second.name, second.arguments["x-message-ttl"]), ("payments.new.retry.2", 4000))
 
     def test_third_failed_attempt_has_no_retry(self):
         self.assertIsNone(retry_queue(3))

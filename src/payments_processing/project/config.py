@@ -1,6 +1,7 @@
 import os
+from collections.abc import Callable
 from dataclasses import MISSING, dataclass, field, fields
-from typing import Self
+from typing import Any, Self, cast
 
 
 @dataclass(slots=True, frozen=True)
@@ -18,11 +19,13 @@ class Config:
     @classmethod
     def from_env(cls) -> Self:
         """Builds Config from env vars named after the fields, falling back to field defaults."""
-        values = {}
+        values: dict[str, Any] = {}
         for f in fields(cls):
             name = f.name.upper()
-            if name in os.environ:
-                values[f.name] = f.type(os.environ[name])
+            if os.environ.get(name):
+                # annotations are real types here: this module must not use `from __future__ import annotations`
+                parse = cast(Callable[[str], Any], f.type)
+                values[f.name] = parse(os.environ[name])
             elif f.default is MISSING:
-                raise RuntimeError(f"required environment variable {name} is not set")
+                raise RuntimeError(f"required environment variable {name} is not set or empty")
         return cls(**values)

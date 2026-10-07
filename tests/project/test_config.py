@@ -31,6 +31,14 @@ class ConfigFromEnvTest(unittest.TestCase):
                 with patch.dict(os.environ, env, clear=True), self.assertRaisesRegex(RuntimeError, missing):
                     Config.from_env()
 
+    def test_empty_required_variable_fails_fast_naming_it(self):
+        """An empty API_KEY would let a request with an empty X-API-Key header through."""
+        for empty in REQUIRED:
+            with self.subTest(empty=empty):
+                env = REQUIRED | {empty: ""}
+                with patch.dict(os.environ, env, clear=True), self.assertRaisesRegex(RuntimeError, empty):
+                    Config.from_env()
+
     def test_overrides_are_parsed_to_the_field_types(self):
         env = {**REQUIRED, "OUTBOX_POLL_INTERVAL_S": "0.5", "OUTBOX_BATCH_SIZE": "10"}
         with patch.dict(os.environ, env, clear=True):

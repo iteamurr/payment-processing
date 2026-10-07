@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,7 +18,7 @@ class SqlOutboxRepository(OutboxRepository):
     sessions: async_sessionmaker[AsyncSession]
 
     @asynccontextmanager
-    async def lock_pending(self, limit: int) -> AsyncIterator[list[OutboxEvent]]:
+    async def lock_pending(self, limit: int) -> AsyncGenerator[list[OutboxEvent]]:
         """FOR UPDATE SKIP LOCKED lets several relays (api replicas) share the table without double work."""
         async with self.sessions.begin() as session:
             rows = list(

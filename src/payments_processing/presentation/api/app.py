@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from faststream.rabbit import RabbitBroker
@@ -17,18 +17,18 @@ from payments_processing.project.logging import configure_logging
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Declares the broker topology and runs the outbox relay for the app's lifetime."""
     configure_logging()
     container = get_container()
     broker = container.resolve(RabbitBroker)
     await broker.connect()
     await declare_topology(broker)
-    shutdown = asyncio.Event()
-    relay = asyncio.create_task(container.resolve(OutboxRelay).run(shutdown))
+    relay = asyncio.create_task(container.resolve(OutboxRelay).run())
     yield
-    shutdown.set()
-    await relay
+    relay.cancel()
+    with suppress(asyncio.CancelledError):
+        await relay
     await broker.stop()
     await container.resolve(AsyncEngine).dispose()
 

@@ -1,19 +1,16 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass
 from typing import ClassVar
 
 from faststream.rabbit import RabbitBroker, RabbitMessage
-from pydantic import BaseModel
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
+from payments_processing.domain.entities.outbox_event import PaymentCreated
 from payments_processing.infrastructure.broker.rabbit import ATTEMPT_HEADER, retry_queue
-
-
-class PaymentCreated(BaseModel):
-    payment_id: uuid.UUID
 
 
 @dataclass
@@ -71,7 +68,7 @@ class PaymentCreatedHandler:
 
 def _parse(message: RabbitMessage) -> tuple[uuid.UUID, int]:
     """Raises ValueError or TypeError on a malformed body or x-attempt header."""
-    payment_id = PaymentCreated.model_validate_json(message.body).payment_id
+    payment_id = PaymentCreated.from_payload(json.loads(message.body)).payment_id
     attempt = int(message.headers.get(ATTEMPT_HEADER, 1))
     if attempt < 1:
         raise ValueError(f"{ATTEMPT_HEADER} must be positive, got {attempt}")

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import ClassVar
 
@@ -28,14 +27,13 @@ class OutboxRelay:
                 await self.publisher.publish(event)
         return len(events)
 
-    async def run(self, shutdown: asyncio.Event) -> None:
-        """Polls until `shutdown` is set; a full batch is followed by the next one without waiting."""
-        while not shutdown.is_set():
+    async def run(self) -> None:
+        """Polls until cancelled; a full batch is followed by the next one without waiting."""
+        while True:
             try:
                 published = await self.publish_pending()
             except Exception:
                 self._logger.exception("outbox publish failed, retrying in %ss", self.poll_interval_s)
                 published = 0
             if published < self.batch_size:
-                with suppress(TimeoutError):
-                    await asyncio.wait_for(shutdown.wait(), self.poll_interval_s)
+                await asyncio.sleep(self.poll_interval_s)

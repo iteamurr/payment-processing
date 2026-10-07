@@ -5,19 +5,11 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Self
 
 from payments_processing.domain.errors import InvalidPaymentTransitionError
-
-CENT = Decimal("0.01")
-
-
-class Currency(StrEnum):
-    RUB = "RUB"
-    USD = "USD"
-    EUR = "EUR"
+from payments_processing.domain.values.money import Money
 
 
 class PaymentStatus(StrEnum):
@@ -31,18 +23,17 @@ class PaymentStatus(StrEnum):
 
 @dataclass(slots=True, frozen=True)
 class PaymentRequest:
-    amount: Decimal
-    currency: Currency
+    money: Money
     description: str
     metadata: dict[str, Any]
     webhook_url: str
 
     def fingerprint(self) -> str:
-        """sha256 of canonical JSON: sorted keys, amount fixed to 2 decimals."""
+        """sha256 of canonical JSON with sorted keys."""
         canonical = json.dumps(
             {
-                "amount": str(self.amount.quantize(CENT)),
-                "currency": self.currency.value,
+                "amount": str(self.money.amount),
+                "currency": self.money.currency.value,
                 "description": self.description,
                 "metadata": self.metadata,
                 "webhook_url": self.webhook_url,
@@ -57,8 +48,7 @@ class PaymentRequest:
 @dataclass(slots=True)
 class Payment:
     id: uuid.UUID
-    amount: Decimal
-    currency: Currency
+    money: Money
     description: str
     metadata: dict[str, Any]
     webhook_url: str
@@ -72,8 +62,7 @@ class Payment:
     def build(cls, request: PaymentRequest, idempotency_key: str) -> Self:
         return cls(
             id=uuid.uuid4(),
-            amount=request.amount.quantize(CENT),
-            currency=request.currency,
+            money=request.money,
             description=request.description,
             metadata=request.metadata,
             webhook_url=request.webhook_url,
