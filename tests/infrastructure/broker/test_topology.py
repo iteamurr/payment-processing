@@ -53,7 +53,7 @@ class DeclareTopologyTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_message_redelivered_past_the_limit_lands_in_the_dlq(self):
         """What a consumer that crashes on a message produces: unacked redeliveries until the limit is exceeded.
 
-        Run with the compose consumer stopped: it would take the message from payments.new."""
+        At-least-once dead-lettering is asynchronous, so the DLQ is polled. Run with the compose consumer stopped."""
         broker = build_broker(RABBITMQ_URL, prefetch_count=1)
         await broker.connect()
         self.addAsyncCleanup(broker.stop)
@@ -71,7 +71,7 @@ class DeclareTopologyTest(unittest.IsolatedAsyncioTestCase):
             await message.nack(requeue=True)
             await asyncio.sleep(0.05)
 
-        dead = await dlq.get(no_ack=True, fail=False)
-        self.assertIsNotNone(dead)
-        assert dead is not None
+        async with asyncio.timeout(5):
+            while (dead := await dlq.get(no_ack=True, fail=False)) is None:
+                await asyncio.sleep(0.05)
         self.assertEqual(dead.body, b"poison")
