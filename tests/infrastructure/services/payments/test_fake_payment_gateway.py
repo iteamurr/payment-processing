@@ -33,10 +33,10 @@ class FakePaymentGatewayTest(unittest.IsolatedAsyncioTestCase):
     async def test_roll_at_or_above_success_rate_fails(self):
         self.assertIs(await self.charge(0.9), PaymentStatus.FAILED)
 
-    def instant_gateway(self, *rolls: float) -> FakePaymentGateway:
+    def instant_gateway(self, *rolls: float, max_remembered: int = 10_000) -> FakePaymentGateway:
         self.rng.uniform.return_value = 0
         self.rng.random.side_effect = list(rolls)
-        return FakePaymentGateway(rng=self.rng)
+        return FakePaymentGateway(rng=self.rng, max_remembered=max_remembered)
 
     async def test_repeated_charge_of_a_payment_returns_the_first_result_without_charging_again(self):
         """A duplicate delivery of payments.new must not charge twice: the gateway is idempotent per payment.id."""
@@ -63,3 +63,14 @@ class FakePaymentGatewayTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(await gateway.charge(self.payment), PaymentStatus.SUCCEEDED)
         self.assertIs(await gateway.charge(other), PaymentStatus.FAILED)
+
+    async def test_remembers_only_the_most_recent_charges(self):
+        """Bounded memory in a long-running consumer; a forgotten payment is long past pending anyway."""
+        gateway = self.instant_gateway(0.0, 0.0, 0.0, 0.99, max_remembered=2)
+        first, second, third = (Payment.build(payment_request(), f"key-{i}") for i in range(3))
+
+        for payment in (first, second, third):
+            self.assertIs(await gateway.charge(payment), PaymentStatus.SUCCEEDED)
+
+        self.assertIs(await gateway.charge(third), PaymentStatus.SUCCEEDED)
+        self.assertIs(await gateway.charge(first), PaymentStatus.FAILED)
