@@ -28,6 +28,7 @@ class PaymentProcessing:
         """Errors propagate; the caller decides whether to retry."""
         payment = await self.lookup.get(payment_id)
         if payment.status is PaymentStatus.PENDING:
+            await self.webhooks.check_target(payment)
             payment = await self._charge(payment)
         await self.webhooks.send(payment)
 

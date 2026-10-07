@@ -6,7 +6,7 @@ from payments_processing.application.payments.payment_lookup import PaymentLooku
 from payments_processing.application.payments.payment_processing import PaymentProcessing
 from payments_processing.domain.entities.outbox_event import OutboxEvent
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
-from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError
+from payments_processing.domain.errors import PaymentNotFoundError, WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.domain.services.payments.payment_gateway import PaymentGateway
 from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
 from tests.mocks import InMemoryPaymentRepository, payment_request
@@ -79,3 +79,13 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PaymentNotFoundError):
             await self.processing.process(uuid.uuid4())
         self.webhooks.send.assert_not_awaited()
+
+    async def test_forbidden_webhook_target_is_refused_before_charging(self):
+        """Charging first would take the money and then never tell the client."""
+        self.webhooks.check_target.side_effect = WebhookTargetForbiddenError("10.0.0.5")
+
+        with self.assertRaises(WebhookTargetForbiddenError):
+            await self.processing.process(self.payment.id)
+
+        self.gateway.charge.assert_not_awaited()
+        self.assertIs(self.repository.payments[self.payment.id].status, PaymentStatus.PENDING)

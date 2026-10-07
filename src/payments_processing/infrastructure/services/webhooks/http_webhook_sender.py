@@ -32,7 +32,7 @@ class HttpWebhookSender(WebhookSender):
     async def send(self, payment: Payment) -> None:
         """The deadline covers the whole request (httpx timeouts are per phase); the response body is never read."""
         url = payment.webhook_url
-        await self._check_target(httpx.URL(url))
+        await self.check_target(payment)
         body = WebhookPayload.model_validate(payment).model_dump_json().encode()
         try:
             async with asyncio.timeout(self.timeout_s):
@@ -45,7 +45,9 @@ class HttpWebhookSender(WebhookSender):
         if not httpx.codes.is_success(status):
             raise WebhookDeliveryError(f"webhook {url}: HTTP {status}")
 
-    async def _check_target(self, url: httpx.URL) -> None:
+    async def check_target(self, payment: Payment) -> None:
+        """Also raises WebhookDeliveryError while the host cannot be resolved, which is worth retrying."""
+        url = httpx.URL(payment.webhook_url)
         if url.host in self.allowed_hosts:
             return
         port = url.port or (443 if url.scheme == "https" else 80)

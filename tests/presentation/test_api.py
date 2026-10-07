@@ -206,3 +206,20 @@ class APITest(unittest.TestCase):
 
     def test_body_under_the_limit_is_accepted(self):
         self.assertEqual(self.create(body=BODY | {"metadata": {"blob": "x" * 60_000}}).status_code, 202)
+
+    def test_obviously_internal_webhook_url_returns_422(self):
+        """Refused before anything is charged; the consumer still checks the resolved address before sending."""
+        for url in (
+            "http://localhost/hook",
+            "http://api.localhost/hook",
+            "http://127.0.0.1/hook",
+            "http://10.0.0.5/hook",
+            "http://169.254.169.254/latest",
+            "http://[::1]/hook",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(self.create(body=BODY | {"webhook_url": url}).status_code, 422)
+        self.assertEqual(self.repository.payments, {})
+
+    def test_public_ip_webhook_url_is_accepted(self):
+        self.assertEqual(self.create(body=BODY | {"webhook_url": "http://93.184.216.34/hook"}).status_code, 202)
