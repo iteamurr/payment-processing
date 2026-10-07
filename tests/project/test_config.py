@@ -67,6 +67,10 @@ class ConfigTest(unittest.TestCase):
                 with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
                     config_from(REQUIRED | {name: value})
 
+    def test_webhook_timeout_must_fit_the_consumer_shutdown_budget(self):
+        with self.assertRaisesRegex(ValidationError, "webhook_timeout_s"):
+            config_from(REQUIRED | {"WEBHOOK_TIMEOUT_S": "10.1"})
+
     def test_secrets_are_not_leaked_in_repr(self):
         config = config_from(REQUIRED | {"API_KEY": "secret-key"})
 

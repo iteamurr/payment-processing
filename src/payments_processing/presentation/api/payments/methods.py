@@ -45,7 +45,7 @@ async def create_payment(
     creation: PaymentCreation = resolve_depends(PaymentCreation),
     config: Config = resolve_depends(Config),
 ) -> PaymentAcceptedOut:
-    """A repeated Idempotency-Key with the same body returns the stored payment."""
+    """Creates a pending payment or returns the existing one for the same idempotency key and request."""
     ensure_webhook_host_allowed(body.webhook_url, config.webhook_allowed_hosts)
     try:
         payment = await creation.create(body.to_request(), idempotency_key)
@@ -64,6 +64,7 @@ async def get_payment(
     payment_id: uuid.UUID,
     lookup: PaymentLookup = resolve_depends(PaymentLookup),
 ) -> PaymentOut:
+    """Returns the payment's current status and all stored request and processing details."""
     try:
         payment = await lookup.get(payment_id)
     except PaymentNotFoundError:

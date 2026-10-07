@@ -53,6 +53,11 @@ class ConsumerContainerTest(unittest.TestCase):
         with self.assertRaises(punq.MissingDependencyError):
             build_consumer_container(CONFIG).resolve(OutboxRelay)
 
+    def test_webhook_client_does_not_inherit_proxy_settings_from_the_environment(self):
+        container = build_consumer_container(CONFIG)
+
+        self.assertFalse(container.resolve(httpx.AsyncClient)._trust_env)
+
     def test_refuses_to_build_without_a_webhook_secret(self):
         """Unsigned webhooks would let anyone forge a payment result to the client."""
         with self.assertRaisesRegex(RuntimeError, "WEBHOOK_SECRET"):

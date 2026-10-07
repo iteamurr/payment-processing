@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -22,6 +23,7 @@ class PaymentCreatedHandler:
 
     processing: PaymentProcessing
     broker: RabbitBroker
+    processing_timeout_s: float = 30.0
     publish_timeout_s: float = 10.0
 
     _logger: ClassVar[logging.Logger] = logging.getLogger(__name__)
@@ -36,7 +38,8 @@ class PaymentCreatedHandler:
             return
 
         try:
-            await self.processing.process(event.payment_id)
+            async with asyncio.timeout(self.processing_timeout_s):
+                await self.processing.process(event.payment_id)
         except (PaymentNotFoundError, WebhookTargetForbiddenError):
             self._logger.exception("payment %s cannot succeed on retry, dead-lettering", event.payment_id)
             await message.reject()

@@ -19,7 +19,7 @@ class Config(BaseSettings):
     webhook_secret: str = Field(default="", repr=False)
     outbox_poll_interval_s: Annotated[float, Field(gt=0)] = 1.0
     outbox_batch_size: Annotated[int, Field(gt=0)] = 100
-    webhook_timeout_s: Annotated[float, Field(gt=0)] = 10.0
+    webhook_timeout_s: Annotated[float, Field(gt=0, le=10)] = 10.0
     webhook_allowed_hosts: Annotated[frozenset[str], NoDecode] = frozenset()
     consumer_prefetch_count: Annotated[int, Field(gt=0)] = 10
 

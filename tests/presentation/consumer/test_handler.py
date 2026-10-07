@@ -1,3 +1,4 @@
+import asyncio
 import json
 import unittest
 import uuid
@@ -137,3 +138,18 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
             await handler.handle(message())
 
         self.assertEqual(self.broker.publish.await_args.kwargs["timeout"], 2.5)
+
+    async def test_processing_is_bounded_by_a_timeout(self):
+        async def hang(_payment_id):
+            await asyncio.sleep(60)
+
+        self.processing.process.side_effect = hang
+        handler = PaymentCreatedHandler(self.processing, self.broker, processing_timeout_s=0.01)
+        msg = message()
+
+        with self.assertLogs("payments_processing.presentation.consumer.handler", "WARNING"):
+            async with asyncio.timeout(1):
+                await handler.handle(msg)
+
+        self.broker.publish.assert_awaited_once()
+        msg.ack.assert_awaited_once()

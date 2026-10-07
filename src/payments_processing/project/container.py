@@ -60,7 +60,7 @@ def build_consumer_container(config: Config) -> punq.Container:
         raise RuntimeError("environment variable WEBHOOK_SECRET is required by the consumer")
     container, _ = _build_shared(config)
     container.register(PaymentLookup, scope=punq.Scope.singleton)
-    container.register(httpx.AsyncClient, instance=httpx.AsyncClient())
+    container.register(httpx.AsyncClient, instance=httpx.AsyncClient(trust_env=False))
     container.register(
         WebhookSender,
         HttpWebhookSender,
