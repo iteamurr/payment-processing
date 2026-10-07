@@ -5,6 +5,7 @@ x-app: &app
   environment: &app-env
     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:?set in .env}:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/${POSTGRES_DB:?set in .env}
     RABBITMQ_URL: amqp://${RABBITMQ_USER:?set in .env}:${RABBITMQ_PASSWORD:?set in .env}@rabbitmq:5672/
+    DATABASE_TIMEOUT_S: ${DATABASE_TIMEOUT_S:-10}
     WEBHOOK_ALLOWED_HOSTS: webhook-echo
 
 services:
@@ -54,6 +55,8 @@ services:
     environment:
       <<: *app-env
       API_KEY: ${API_KEY:?set in .env}
+      OUTBOX_POLL_INTERVAL_S: ${OUTBOX_POLL_INTERVAL_S:-1}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-100}
     ports:
       - "8000:8000"
     depends_on:
@@ -71,6 +74,8 @@ services:
     environment:
       <<: *app-env
       WEBHOOK_SECRET: ${WEBHOOK_SECRET:?set in .env}
+      WEBHOOK_TIMEOUT_S: ${WEBHOOK_TIMEOUT_S:-10}
+      CONSUMER_PREFETCH_COUNT: ${CONSUMER_PREFETCH_COUNT:-10}
     command: faststream run payments_processing.presentation.consumer.app:build_consumer --factory
     stop_grace_period: 50s
     depends_on:

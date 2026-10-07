@@ -1,16 +1,19 @@
+import asyncio
 import json
 import unittest
 import uuid
-from unittest.mock import AsyncMock, create_autospec, patch
+from unittest.mock import AsyncMock, Mock, create_autospec, patch
 
 import punq
 from fastapi.testclient import TestClient
+from faststream.rabbit import RabbitBroker
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import payments_processing.presentation.api.deps as deps
+from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
 from payments_processing.application.payments.payment_lookup import PaymentLookup
-from payments_processing.presentation.api.app import build_app
+from payments_processing.presentation.api.app import build_app, lifespan
 from payments_processing.project.config import Config
 from tests.mocks import InMemoryPaymentRepository
 
@@ -23,6 +26,56 @@ BODY = {
     "metadata": {"order_id": 1},
     "webhook_url": "http://hooks.example/ok",
 }
+
+
+class LifespanTest(unittest.IsolatedAsyncioTestCase):
+    async def test_stops_the_relay_broker_and_engine_when_the_application_fails(self):
+        started = asyncio.Event()
+        relay = create_autospec(OutboxRelay, instance=True)
+
+        async def run_relay() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        relay.run.side_effect = run_relay
+        broker = create_autospec(RabbitBroker, instance=True)
+        engine = create_autospec(AsyncEngine, instance=True)
+        dependencies = {OutboxRelay: relay, RabbitBroker: broker, AsyncEngine: engine}
+        container = Mock()
+        container.resolve.side_effect = dependencies.__getitem__
+
+        with (
+            patch("payments_processing.presentation.api.app.configure_logging"),
+            patch("payments_processing.presentation.api.app.get_api_container", return_value=container),
+            self.assertRaises(RuntimeError),
+        ):
+            async with lifespan(Mock()):
+                await started.wait()
+                raise RuntimeError("application failed")
+
+        relay.run.assert_awaited_once()
+        broker.stop.assert_awaited_once()
+        engine.dispose.assert_awaited_once()
+
+    async def test_stops_the_broker_and_engine_when_the_relay_fails(self):
+        relay = create_autospec(OutboxRelay, instance=True)
+        relay.run.side_effect = RuntimeError("relay failed")
+        broker = create_autospec(RabbitBroker, instance=True)
+        engine = create_autospec(AsyncEngine, instance=True)
+        dependencies = {OutboxRelay: relay, RabbitBroker: broker, AsyncEngine: engine}
+        container = Mock()
+        container.resolve.side_effect = dependencies.__getitem__
+
+        with (
+            patch("payments_processing.presentation.api.app.configure_logging"),
+            patch("payments_processing.presentation.api.app.get_api_container", return_value=container),
+            self.assertRaisesRegex(RuntimeError, "relay failed"),
+        ):
+            async with lifespan(Mock()):
+                await asyncio.sleep(0)
+
+        broker.stop.assert_awaited_once()
+        engine.dispose.assert_awaited_once()
 
 
 def headers(idempotency_key: str | None = "key-1", api_key: str | None = API_KEY) -> dict[str, str]:

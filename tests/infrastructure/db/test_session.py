@@ -1,7 +1,21 @@
 import unittest
+from unittest.mock import patch
 
 from payments_processing.infrastructure.db.session import build_engine, ping
 from tests.live_services import DATABASE_URL, requires_database
+
+
+class BuildEngineTest(unittest.TestCase):
+    @patch("payments_processing.infrastructure.db.session.create_async_engine")
+    def test_bounds_pool_waits_connections_and_commands(self, create_async_engine):
+        build_engine("postgresql+asyncpg://localhost/payments", timeout_s=2.5)
+
+        create_async_engine.assert_called_once_with(
+            "postgresql+asyncpg://localhost/payments",
+            pool_pre_ping=True,
+            pool_timeout=2.5,
+            connect_args={"timeout": 2.5, "command_timeout": 2.5},
+        )
 
 
 class PingTest(unittest.IsolatedAsyncioTestCase):

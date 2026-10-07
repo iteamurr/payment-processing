@@ -24,6 +24,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config.database_url, REQUIRED["DATABASE_URL"])
         self.assertEqual(config.rabbitmq_url, REQUIRED["RABBITMQ_URL"])
         self.assertEqual(config.api_key, "")
+        self.assertEqual(config.database_timeout_s, 10.0)
         self.assertEqual(config.outbox_poll_interval_s, 1.0)
         self.assertEqual(config.outbox_batch_size, 100)
         self.assertEqual(config.webhook_timeout_s, 10.0)
@@ -56,13 +57,14 @@ class ConfigTest(unittest.TestCase):
             "OUTBOX_BATCH_SIZE",
             "WEBHOOK_TIMEOUT_S",
             "CONSUMER_PREFETCH_COUNT",
+            "DATABASE_TIMEOUT_S",
         ):
             for value in ("0", "-1"):
                 with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
                     config_from(REQUIRED | {name: value})
 
     def test_non_finite_operational_numbers_fail_at_startup(self):
-        for name in ("OUTBOX_POLL_INTERVAL_S", "WEBHOOK_TIMEOUT_S"):
+        for name in ("DATABASE_TIMEOUT_S", "OUTBOX_POLL_INTERVAL_S", "WEBHOOK_TIMEOUT_S"):
             for value in ("nan", "inf", "-inf"):
                 with self.subTest(name=name, value=value), self.assertRaisesRegex(ValidationError, name.lower()):
                     config_from(REQUIRED | {name: value})
@@ -70,6 +72,10 @@ class ConfigTest(unittest.TestCase):
     def test_webhook_timeout_must_fit_the_consumer_shutdown_budget(self):
         with self.assertRaisesRegex(ValidationError, "webhook_timeout_s"):
             config_from(REQUIRED | {"WEBHOOK_TIMEOUT_S": "10.1"})
+
+    def test_database_timeout_must_fit_the_consumer_processing_budget(self):
+        with self.assertRaisesRegex(ValidationError, "database_timeout_s"):
+            config_from(REQUIRED | {"DATABASE_TIMEOUT_S": "30.1"})
 
     def test_secrets_are_not_leaked_in_repr(self):
         config = config_from(REQUIRED | {"API_KEY": "secret-key"})

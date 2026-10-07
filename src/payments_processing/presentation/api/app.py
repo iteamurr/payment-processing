@@ -24,12 +24,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     configure_logging()
     container = get_api_container()
     relay = asyncio.create_task(container.resolve(OutboxRelay).run())
-    yield
-    relay.cancel()
-    with suppress(asyncio.CancelledError):
-        await relay
-    await container.resolve(RabbitBroker).stop()
-    await container.resolve(AsyncEngine).dispose()
+    try:
+        yield
+    finally:
+        relay.cancel()
+        try:
+            with suppress(asyncio.CancelledError):
+                await relay
+        finally:
+            try:
+                await container.resolve(RabbitBroker).stop()
+            finally:
+                await container.resolve(AsyncEngine).dispose()
 
 
 def build_app() -> FastAPI:

@@ -17,6 +17,7 @@ class Config(BaseSettings):
     rabbitmq_url: str = Field(repr=False)
     api_key: str = Field(default="", repr=False)
     webhook_secret: str = Field(default="", repr=False)
+    database_timeout_s: Annotated[float, Field(gt=0, le=30)] = 10.0
     outbox_poll_interval_s: Annotated[float, Field(gt=0)] = 1.0
     outbox_batch_size: Annotated[int, Field(gt=0)] = 100
     webhook_timeout_s: Annotated[float, Field(gt=0, le=10)] = 10.0

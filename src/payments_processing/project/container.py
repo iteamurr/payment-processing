@@ -79,7 +79,7 @@ def _build_shared(config: Config) -> tuple[punq.Container, async_sessionmaker[As
     """Composition root shared by both processes: config, Postgres and the broker client."""
     container = punq.Container()
     container.register(Config, instance=config)
-    engine = build_engine(config.database_url)
+    engine = build_engine(config.database_url, timeout_s=config.database_timeout_s)
     sessions = build_sessionmaker(engine)
     container.register(AsyncEngine, instance=engine)
     container.register(PaymentRepository, instance=SqlPaymentRepository(sessions))

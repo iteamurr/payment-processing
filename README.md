@@ -141,6 +141,16 @@ docker compose up --build
 
 Миграции применяет одноразовый сервис `migrate`; api и consumer стартуют после его успешного завершения. Данные Postgres и RabbitMQ лежат в именованных томах (`docker compose down -v` их удаляет). Несколько consumer: `docker compose up --scale consumer=3`.
 
+Операционные настройки и значения по умолчанию:
+
+| Переменная | Значение | Назначение |
+|---|---:|---|
+| `DATABASE_TIMEOUT_S` | `10` | ожидание пула, подключение и команда PostgreSQL |
+| `OUTBOX_POLL_INTERVAL_S` | `1` | пауза relay, когда опубликована неполная пачка |
+| `OUTBOX_BATCH_SIZE` | `100` | максимальное число событий за проход relay |
+| `WEBHOOK_TIMEOUT_S` | `10` | общий deadline одного webhook-запроса, максимум 10 с |
+| `CONSUMER_PREFETCH_COUNT` | `10` | число сообщений RabbitMQ в обработке у consumer |
+
 ## Примеры
 
 Создать платёж:

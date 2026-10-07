@@ -6,9 +6,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 
-def build_engine(url: str) -> AsyncEngine:
-    """pool_pre_ping drops connections Postgres closed while they sat in the pool."""
-    return create_async_engine(url, pool_pre_ping=True)
+def build_engine(url: str, timeout_s: float = 10.0) -> AsyncEngine:
+    """Builds an asyncpg engine with bounded pool waits, connections and database commands."""
+    return create_async_engine(
+        url,
+        pool_pre_ping=True,
+        pool_timeout=timeout_s,
+        connect_args={"timeout": timeout_s, "command_timeout": timeout_s},
+    )
 
 
 def build_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
