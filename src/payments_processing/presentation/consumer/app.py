@@ -19,7 +19,6 @@ def subscribe(broker: RabbitBroker, handler: PaymentCreatedHandler) -> None:
 
 
 def build_consumer() -> FastStream:
-    """Factory for `faststream run --factory`."""
     configure_logging()
     container = get_container()
     broker = container.resolve(RabbitBroker)

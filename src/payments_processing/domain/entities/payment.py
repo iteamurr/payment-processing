@@ -11,6 +11,8 @@ from typing import Any, Self
 
 from payments_processing.domain.errors import InvalidPaymentTransitionError
 
+CENT = Decimal("0.01")
+
 
 class Currency(StrEnum):
     RUB = "RUB"
@@ -29,8 +31,6 @@ class PaymentStatus(StrEnum):
 
 @dataclass(slots=True, frozen=True)
 class PaymentRequest:
-    """Client-supplied payment fields."""
-
     amount: Decimal
     currency: Currency
     description: str
@@ -38,10 +38,10 @@ class PaymentRequest:
     webhook_url: str
 
     def fingerprint(self) -> str:
-        """sha256 of canonical JSON (sorted keys, amount fixed to 2 decimals); compared on idempotent retries."""
+        """sha256 of canonical JSON: sorted keys, amount fixed to 2 decimals."""
         canonical = json.dumps(
             {
-                "amount": f"{self.amount:.2f}",
+                "amount": str(self.amount.quantize(CENT)),
                 "currency": self.currency.value,
                 "description": self.description,
                 "metadata": self.metadata,
@@ -70,10 +70,9 @@ class Payment:
 
     @classmethod
     def build(cls, request: PaymentRequest, idempotency_key: str) -> Self:
-        """New pending payment with a fresh id."""
         return cls(
             id=uuid.uuid4(),
-            amount=request.amount,
+            amount=request.amount.quantize(CENT),
             currency=request.currency,
             description=request.description,
             metadata=request.metadata,
@@ -88,12 +87,3 @@ class Payment:
             raise InvalidPaymentTransitionError(f"payment {self.id}: invalid transition {self.status} -> {status}")
         self.status = status
         self.processed_at = processed_at
-
-    def webhook_payload(self) -> dict[str, Any]:
-        return {
-            "payment_id": str(self.id),
-            "status": self.status.value,
-            "amount": f"{self.amount:.2f}",
-            "currency": self.currency.value,
-            "processed_at": self.processed_at.isoformat() if self.processed_at else None,
-        }

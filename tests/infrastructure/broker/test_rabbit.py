@@ -1,4 +1,3 @@
-import os
 import unittest
 
 from payments_processing.infrastructure.broker.rabbit import (
@@ -9,9 +8,7 @@ from payments_processing.infrastructure.broker.rabbit import (
     declare_topology,
     retry_queue,
 )
-
-RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
-requires_rabbitmq = unittest.skipUnless(RABBITMQ_URL, "RABBITMQ_URL is not set")
+from tests.live_services import RABBITMQ_URL, requires_rabbitmq
 
 
 class RetryQueueTest(unittest.TestCase):

@@ -28,7 +28,7 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
         self.assertIs(stored.status, PaymentStatus.SUCCEEDED)
         self.assertIsNotNone(stored.processed_at)
         self.gateway.charge.assert_awaited_once()
-        self.webhooks.send.assert_awaited_once_with(stored.webhook_url, stored.webhook_payload())
+        self.webhooks.send.assert_awaited_once_with(stored)
 
     async def test_declined_charge_is_a_result_not_an_error(self):
         self.gateway.charge.return_value = PaymentStatus.FAILED
@@ -37,7 +37,7 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
 
         stored = await self.repository.get(self.payment.id)
         self.assertIs(stored.status, PaymentStatus.FAILED)
-        self.assertEqual(self.webhooks.send.await_args.args[1]["status"], "failed")
+        self.assertIs(self.webhooks.send.await_args.args[0].status, PaymentStatus.FAILED)
 
     async def test_webhook_failure_propagates_after_the_status_is_stored(self):
         self.webhooks.send.side_effect = WebhookDeliveryError("HTTP 500")
@@ -69,7 +69,7 @@ class PaymentProcessingTest(unittest.IsolatedAsyncioTestCase):
         await self.processing.process(self.payment.id)
 
         self.assertIs((await self.repository.get(self.payment.id)).status, PaymentStatus.FAILED)
-        self.assertEqual(self.webhooks.send.await_args.args[1]["status"], "failed")
+        self.assertIs(self.webhooks.send.await_args.args[0].status, PaymentStatus.FAILED)
 
     async def test_unknown_payment_raises(self):
         with self.assertRaises(PaymentNotFoundError):

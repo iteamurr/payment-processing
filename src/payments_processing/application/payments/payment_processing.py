@@ -32,7 +32,7 @@ class PaymentProcessing:
                 # a parallel delivery stored its result first; notify with that one
                 payment = await self._get(payment_id)
             self._logger.info("payment %s processed: %s", payment.id, payment.status)
-        await self.webhooks.send(payment.webhook_url, payment.webhook_payload())
+        await self.webhooks.send(payment)
 
     async def _get(self, payment_id: uuid.UUID) -> Payment:
         payment = await self.repository.get(payment_id)

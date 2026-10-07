@@ -34,7 +34,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def build_app() -> FastAPI:
-    """Factory for `uvicorn --factory`."""
     app = FastAPI(title="payments-processing", lifespan=lifespan)
     app.include_router(probes_router)
     app.include_router(payments_router)

@@ -3,7 +3,7 @@ from functools import lru_cache
 import httpx
 import punq
 from faststream.rabbit import RabbitBroker
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
@@ -14,6 +14,7 @@ from payments_processing.domain.services.payments.payment_gateway import Payment
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
 from payments_processing.domain.services.payments.webhook_sender import WebhookSender
 from payments_processing.infrastructure.broker.rabbit import build_broker
+from payments_processing.infrastructure.db.session import build_engine, build_sessionmaker
 from payments_processing.infrastructure.services.outbox.rabbit_event_publisher import RabbitEventPublisher
 from payments_processing.infrastructure.services.outbox.sql_outbox_repository import SqlOutboxRepository
 from payments_processing.infrastructure.services.payments.fake_payment_gateway import FakePaymentGateway
@@ -34,8 +35,8 @@ def build_container(config: Config) -> punq.Container:
     container = punq.Container()
     container.register(Config, instance=config)
 
-    engine = create_async_engine(config.database_url, pool_pre_ping=True)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    engine = build_engine(config.database_url)
+    sessions = build_sessionmaker(engine)
     container.register(AsyncEngine, instance=engine)
     container.register(PaymentRepository, instance=SqlPaymentRepository(sessions))
     container.register(OutboxRepository, instance=SqlOutboxRepository(sessions))

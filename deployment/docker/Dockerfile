@@ -16,4 +16,4 @@ USER appuser
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src
 EXPOSE 8000
-CMD ["uvicorn", "payments_processing.presentation.app:build_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "payments_processing.presentation.api.app:build_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

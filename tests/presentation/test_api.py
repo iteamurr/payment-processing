@@ -5,10 +5,10 @@ from unittest.mock import patch
 import punq
 from fastapi.testclient import TestClient
 
-import payments_processing.presentation.deps as deps
+import payments_processing.presentation.api.deps as deps
 from payments_processing.application.payments.payment_creation import PaymentCreation
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
-from payments_processing.presentation.app import build_app
+from payments_processing.presentation.api.app import build_app
 from payments_processing.project.config import Config
 from tests.mocks import InMemoryPaymentRepository
 

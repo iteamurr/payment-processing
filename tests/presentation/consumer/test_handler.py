@@ -85,14 +85,27 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
         self.processing.process.assert_not_awaited()
         self.broker.publish.assert_not_awaited()
 
-    async def test_retry_publish_failure_leaves_the_message_unacked(self):
-        """Unacked message is redelivered by RabbitMQ when the channel closes."""
+    async def test_malformed_attempt_header_is_dead_lettered_without_processing(self):
+        for attempt in ("abc", 0, -1, None):
+            with self.subTest(attempt=attempt):
+                msg = message(headers={"x-attempt": attempt})
+
+                with self.assertLogs("payments_processing.presentation.consumer.handler", "WARNING"):
+                    await self.handler.handle(msg)
+
+                msg.reject.assert_awaited_once_with()
+                msg.ack.assert_not_awaited()
+        self.processing.process.assert_not_awaited()
+        self.broker.publish.assert_not_awaited()
+
+    async def test_retry_publish_failure_dead_letters_the_message(self):
+        """Manual ack: an exception escaping the handler would leave the delivery unacked until consumer_timeout."""
         self.processing.process.side_effect = WebhookDeliveryError("HTTP 500")
-        self.broker.publish.side_effect = ConnectionError("broker down")
+        self.broker.publish.side_effect = ConnectionError("broker nack")
         msg = message()
 
-        with self.assertRaises(ConnectionError), self.assertLogs("payments_processing.presentation.consumer.handler"):
+        with self.assertLogs("payments_processing.presentation.consumer.handler", "ERROR"):
             await self.handler.handle(msg)
 
+        msg.reject.assert_awaited_once_with()
         msg.ack.assert_not_awaited()
-        msg.reject.assert_not_awaited()

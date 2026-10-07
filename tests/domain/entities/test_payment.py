@@ -3,19 +3,9 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from payments_processing.domain.entities.payment import Currency, Payment, PaymentRequest, PaymentStatus
+from payments_processing.domain.entities.payment import Currency, Payment, PaymentStatus
 from payments_processing.domain.errors import InvalidPaymentTransitionError
-
-
-def payment_request(**overrides) -> PaymentRequest:
-    fields = {
-        "amount": Decimal("100.50"),
-        "currency": Currency.RUB,
-        "description": "Order #1",
-        "metadata": {"order_id": 1, "tags": ["a", "b"]},
-        "webhook_url": "http://hooks.example/ok",
-    }
-    return PaymentRequest(**(fields | overrides))
+from tests.mocks import payment_request
 
 
 class PaymentRequestFingerprintTest(unittest.TestCase):
@@ -64,6 +54,11 @@ class PaymentTest(unittest.TestCase):
         self.assertIsNotNone(payment.created_at.tzinfo)
         self.assertIsNone(payment.processed_at)
 
+    def test_build_normalizes_amount_to_two_decimals(self):
+        payment = Payment.build(payment_request(amount=Decimal("100.5")), "key-1")
+
+        self.assertEqual(str(payment.amount), "100.50")
+
     def test_pending_payment_completes_to_either_final_status(self):
         processed_at = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
         for status in (PaymentStatus.SUCCEEDED, PaymentStatus.FAILED):
@@ -88,18 +83,3 @@ class PaymentTest(unittest.TestCase):
 
         with self.assertRaises(InvalidPaymentTransitionError):
             payment.complete(PaymentStatus.PENDING, datetime.now(UTC))
-
-    def test_webhook_payload(self):
-        payment = Payment.build(payment_request(amount=Decimal("100.5")), "key-1")
-        payment.complete(PaymentStatus.SUCCEEDED, datetime(2026, 10, 7, 12, 0, tzinfo=UTC))
-
-        self.assertEqual(
-            payment.webhook_payload(),
-            {
-                "payment_id": str(payment.id),
-                "status": "succeeded",
-                "amount": "100.50",
-                "currency": "RUB",
-                "processed_at": "2026-10-07T12:00:00+00:00",
-            },
-        )

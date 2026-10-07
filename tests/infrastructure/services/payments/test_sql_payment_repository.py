@@ -8,7 +8,7 @@ from payments_processing.domain.entities.outbox_event import OutboxEvent
 from payments_processing.domain.entities.payment import Payment, PaymentStatus
 from payments_processing.infrastructure.db.models import OutboxRow
 from payments_processing.infrastructure.services.payments.sql_payment_repository import SqlPaymentRepository
-from tests.infrastructure.db import DatabaseTestCase
+from tests.live_services import DatabaseTestCase
 from tests.mocks import payment_request
 
 

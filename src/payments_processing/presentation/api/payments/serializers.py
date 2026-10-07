@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated, Any, Self
+from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from payments_processing.domain.entities.payment import Currency, Payment, PaymentRequest, PaymentStatus
+from payments_processing.domain.entities.payment import Currency, PaymentRequest, PaymentStatus
 
 
 class CreatePaymentIn(BaseModel):
@@ -34,8 +34,10 @@ class PaymentAcceptedOut(BaseModel):
 
 
 class PaymentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
-    amount: Annotated[Decimal, Field(decimal_places=2)]
+    amount: Decimal
     currency: Currency
     description: str
     metadata: dict[str, Any]
@@ -44,18 +46,3 @@ class PaymentOut(BaseModel):
     webhook_url: str
     created_at: datetime
     processed_at: datetime | None
-
-    @classmethod
-    def from_entity(cls, payment: Payment) -> Self:
-        return cls(
-            id=payment.id,
-            amount=payment.amount.quantize(Decimal("0.01")),
-            currency=payment.currency,
-            description=payment.description,
-            metadata=payment.metadata,
-            status=payment.status,
-            idempotency_key=payment.idempotency_key,
-            webhook_url=payment.webhook_url,
-            created_at=payment.created_at,
-            processed_at=payment.processed_at,
-        )

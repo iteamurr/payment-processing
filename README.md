@@ -154,7 +154,7 @@ DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/
 make test   # unit-тесты; тесты с БД и брокером пропускаются
 ```
 
-С Postgres и RabbitMQ (без запущенного `consumer`, иначе он заберёт сообщения интеграционного теста):
+С Postgres и RabbitMQ. `api` и `consumer` должны быть остановлены, иначе они заберут outbox-записи и сообщения тестов. Тесты очищают таблицы и очереди dev-окружения:
 
 ```bash
 docker compose up -d --wait postgres rabbitmq

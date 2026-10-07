@@ -17,7 +17,7 @@ from payments_processing.infrastructure.services.outbox.rabbit_event_publisher i
     PublishNotConfirmedError,
     RabbitEventPublisher,
 )
-from tests.infrastructure.broker.test_rabbit import RABBITMQ_URL, requires_rabbitmq
+from tests.live_services import RABBITMQ_URL, requires_rabbitmq
 
 
 class RabbitEventPublisherTest(unittest.IsolatedAsyncioTestCase):

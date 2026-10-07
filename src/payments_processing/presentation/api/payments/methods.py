@@ -9,8 +9,8 @@ from payments_processing.domain.errors import IdempotencyConflictError
 from payments_processing.domain.services.payments.payment_repository import PaymentRepository
 from payments_processing.presentation.api.auth import require_api_key
 from payments_processing.presentation.api.common.serializers import ErrorOut
+from payments_processing.presentation.api.deps import resolve_depends
 from payments_processing.presentation.api.payments.serializers import CreatePaymentIn, PaymentAcceptedOut, PaymentOut
-from payments_processing.presentation.deps import resolve_depends
 
 router = APIRouter(
     prefix="/api/v1/payments",
@@ -53,4 +53,4 @@ async def get_payment(
     payment = await repository.get(payment_id)
     if payment is None:
         raise HTTPException(status_code=404, detail="payment not found")
-    return PaymentOut.from_entity(payment)
+    return PaymentOut.model_validate(payment)

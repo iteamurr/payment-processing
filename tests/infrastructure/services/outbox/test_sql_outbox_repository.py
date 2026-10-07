@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from payments_processing.domain.entities.outbox_event import PAYMENT_CREATED, OutboxEvent
 from payments_processing.infrastructure.db.models import OutboxRow
 from payments_processing.infrastructure.services.outbox.sql_outbox_repository import SqlOutboxRepository
-from tests.infrastructure.db import DatabaseTestCase
+from tests.live_services import DatabaseTestCase
 
 
 class SqlOutboxRepositoryTest(DatabaseTestCase):
@@ -18,10 +18,10 @@ class SqlOutboxRepositoryTest(DatabaseTestCase):
             OutboxEvent(uuid.uuid4(), PAYMENT_CREATED, {"payment_id": str(uuid.uuid4())}, start + timedelta(seconds=i))
             for i in range(count)
         ]
+        rows = [OutboxRow(id=e.id, event_type=e.event_type, payload=e.payload, created_at=e.created_at) for e in events]
         async with self.sessions.begin() as session:
             # inserted newest first to prove ordering comes from created_at
-            for event in reversed(events):
-                session.add(OutboxRow(**{f: getattr(event, f) for f in ("id", "event_type", "payload", "created_at")}))
+            session.add_all(reversed(rows))
         return events
 
     async def test_yields_unpublished_oldest_first_and_marks_them_published(self):

@@ -4,7 +4,7 @@ import secrets
 
 from fastapi import Header, HTTPException
 
-from payments_processing.presentation.deps import resolve_depends
+from payments_processing.presentation.api.deps import resolve_depends
 from payments_processing.project.config import Config
 
 

@@ -7,15 +7,18 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from payments_processing.infrastructure.db.session import build_engine, build_sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+RABBITMQ_URL = os.environ.get("RABBITMQ_URL")
 requires_database = unittest.skipUnless(DATABASE_URL, "DATABASE_URL is not set")
+requires_rabbitmq = unittest.skipUnless(RABBITMQ_URL, "RABBITMQ_URL is not set")
 
 
 def migrate() -> None:
     """Runs outside the test loop: env.py calls asyncio.run()."""
-    command.upgrade(AlembicConfig(str(Path(__file__).parents[2] / "alembic.ini")), "head")
+    command.upgrade(AlembicConfig(str(Path(__file__).parents[1] / "alembic.ini")), "head")
 
 
 @requires_database
@@ -27,8 +30,8 @@ class DatabaseTestCase(unittest.IsolatedAsyncioTestCase):
         migrate()
 
     async def asyncSetUp(self):
-        self.engine = create_async_engine(DATABASE_URL)
+        self.engine = build_engine(DATABASE_URL)
         self.addAsyncCleanup(self.engine.dispose)
         async with self.engine.begin() as connection:
             await connection.execute(text("TRUNCATE payments, outbox"))
-        self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
+        self.sessions = build_sessionmaker(self.engine)

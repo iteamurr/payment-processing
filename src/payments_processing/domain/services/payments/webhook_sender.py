@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+
+from payments_processing.domain.entities.payment import Payment
 
 
 class WebhookSender(ABC):
     @abstractmethod
-    async def send(self, url: str, payload: dict[str, Any]) -> None:
-        """Raises WebhookDeliveryError unless the endpoint answers 2xx."""
+    async def send(self, payment: Payment) -> None:
+        """Notifies payment.webhook_url of the result; raises WebhookDeliveryError unless it answers 2xx."""
