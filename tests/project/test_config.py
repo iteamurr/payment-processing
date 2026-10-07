@@ -60,3 +60,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(config_from(REQUIRED).webhook_allowed_hosts, frozenset())
         config = config_from(REQUIRED | {"WEBHOOK_ALLOWED_HOSTS": "webhook-echo, hooks.internal"})
         self.assertEqual(config.webhook_allowed_hosts, frozenset({"webhook-echo", "hooks.internal"}))
+
+    def test_webhook_allowed_hosts_are_normalized(self):
+        config = config_from(REQUIRED | {"WEBHOOK_ALLOWED_HOSTS": "Webhook-Echo., [::1]"})
+        self.assertEqual(config.webhook_allowed_hosts, frozenset({"webhook-echo", "::1"}))

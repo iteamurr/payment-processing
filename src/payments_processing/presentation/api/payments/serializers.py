@@ -11,6 +11,7 @@ from pydantic import AfterValidator, AliasPath, BaseModel, BeforeValidator, Conf
 
 from payments_processing.domain.entities.payment import PaymentRequest, PaymentStatus
 from payments_processing.domain.values.money import Currency, Money
+from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
 
 
 def _reject_float(value: Any) -> Any:
@@ -39,7 +40,7 @@ def _contains_nul(value: object) -> bool:
 
 def is_internal_host(url: HttpUrl, allowed_hosts: Set[str]) -> bool:
     """Localhost names and non-public IP literals, unless allowed; the consumer also checks resolved addresses."""
-    host = (url.host or "").strip("[]").rstrip(".").lower()
+    host = normalize_host(url.host or "")
     if host in allowed_hosts:
         return False
     if host == "localhost" or host.endswith(".localhost"):

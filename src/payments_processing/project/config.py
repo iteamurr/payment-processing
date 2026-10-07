@@ -5,6 +5,8 @@ from typing import Annotated, Any, Self
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
+
 
 class Config(BaseSettings):
     """Process settings from env vars named after the fields; an empty variable counts as unset."""
@@ -24,8 +26,9 @@ class Config(BaseSettings):
     @field_validator("webhook_allowed_hosts", mode="before")
     @classmethod
     def _split_hosts(cls, value: Any) -> Any:
-        """Comma-separated in the environment: WEBHOOK_ALLOWED_HOSTS=webhook-echo,hooks.internal."""
-        return frozenset(host.strip() for host in value.split(",") if host.strip()) if isinstance(value, str) else value
+        """Comma-separated in the environment (WEBHOOK_ALLOWED_HOSTS=webhook-echo,hooks.internal), normalized."""
+        hosts = value.split(",") if isinstance(value, str) else value
+        return frozenset(normalize_host(host.strip()) for host in hosts if host.strip())
 
     @classmethod
     def from_env(cls) -> Self:

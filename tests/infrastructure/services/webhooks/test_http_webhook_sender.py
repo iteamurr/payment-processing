@@ -6,6 +6,7 @@ import time
 import unittest
 from datetime import UTC, datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 import httpx
 
@@ -149,6 +150,32 @@ class HttpWebhookSenderTest(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(WebhookDeliveryError):
             await sender.send(self.payment_to("http://nonexistent.invalid/hook"))
+
+    async def test_hanging_dns_is_a_retryable_delivery_error_within_the_timeout(self):
+        """getaddrinfo has no timeout of its own; a stuck resolver must not outlast the webhook deadline."""
+
+        async def hang(*args, **kwargs):
+            await asyncio.sleep(60)
+
+        sender = self.sender(lambda request: httpx.Response(200), timeout_s=0.1, allowed_hosts=frozenset())
+        loop = asyncio.get_running_loop()
+        with patch.object(loop, "getaddrinfo", side_effect=hang):
+            for call in (sender.check_target, sender.send):
+                with self.subTest(call=call.__name__), self.assertRaises(WebhookDeliveryError):
+                    async with asyncio.timeout(1):
+                        await call(self.payment_to("http://slow.example/hook"))
+
+    async def test_allowed_host_matches_regardless_of_case_and_trailing_dot(self):
+        """The api normalizes the host the same way, so both sides accept or refuse the same URLs."""
+        requests = []
+        sender = self.sender(
+            lambda request: requests.append(request) or httpx.Response(200),
+            allowed_hosts=frozenset({"webhook-echo"}),
+        )
+
+        await sender.send(self.payment_to("http://Webhook-Echo.:9000/ok"))
+
+        self.assertEqual(len(requests), 1)
 
 
 class ExplodingStream(httpx.AsyncByteStream):

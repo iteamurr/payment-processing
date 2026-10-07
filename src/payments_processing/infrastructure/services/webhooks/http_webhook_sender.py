@@ -14,6 +14,7 @@ import httpx
 from payments_processing.domain.entities.payment import Payment
 from payments_processing.domain.errors import WebhookDeliveryError, WebhookTargetForbiddenError
 from payments_processing.domain.services.webhooks.webhook_sender import WebhookSender
+from payments_processing.infrastructure.services.webhooks.hosts import normalize_host
 from payments_processing.infrastructure.services.webhooks.serializers import WebhookPayload
 
 
@@ -32,10 +33,10 @@ class HttpWebhookSender(WebhookSender):
     async def send(self, payment: Payment) -> None:
         """The deadline covers the whole request (httpx timeouts are per phase); the response body is never read."""
         url = payment.webhook_url
-        await self.check_target(payment)
         body = WebhookPayload.model_validate(payment).model_dump_json().encode()
         try:
             async with asyncio.timeout(self.timeout_s):
+                await self.check_target(payment)
                 async with self.client.stream("POST", url, content=body, headers=self._headers(body)) as response:
                     status = response.status_code
         except TimeoutError as exc:
@@ -46,15 +47,16 @@ class HttpWebhookSender(WebhookSender):
             raise WebhookDeliveryError(f"webhook {url}: HTTP {status}")
 
     async def check_target(self, payment: Payment) -> None:
-        """Also raises WebhookDeliveryError while the host cannot be resolved, which is worth retrying."""
+        """Also raises WebhookDeliveryError while the host cannot be resolved in time, which is worth retrying."""
         url = httpx.URL(payment.webhook_url)
-        if url.host in self.allowed_hosts:
+        if normalize_host(url.host) in self.allowed_hosts:
             return
         port = url.port or (443 if url.scheme == "https" else 80)
         try:
-            addresses = await asyncio.get_running_loop().getaddrinfo(url.host, port, type=socket.SOCK_STREAM)
-        except OSError as exc:
-            raise WebhookDeliveryError(f"webhook {url}: cannot resolve {url.host}: {exc}") from exc
+            async with asyncio.timeout(self.timeout_s):
+                addresses = await asyncio.get_running_loop().getaddrinfo(url.host, port, type=socket.SOCK_STREAM)
+        except (OSError, TimeoutError) as exc:
+            raise WebhookDeliveryError(f"webhook {url}: cannot resolve {url.host}: {exc!r}") from exc
         for *_, sockaddr in addresses:
             address = ipaddress.ip_address(str(sockaddr[0]).split("%")[0])
             if not address.is_global:
