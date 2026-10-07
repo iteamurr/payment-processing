@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import uuid
+from collections.abc import Set
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, cast
@@ -36,18 +37,17 @@ def _contains_nul(value: object) -> bool:
     return False
 
 
-def _reject_internal_host(url: HttpUrl) -> HttpUrl:
-    """Refuses obviously internal targets before anything is charged; the consumer checks the resolved address."""
-    host = (url.host or "").strip("[]").lower()
+def is_internal_host(url: HttpUrl, allowed_hosts: Set[str]) -> bool:
+    """Localhost names and non-public IP literals, unless allowed; the consumer also checks resolved addresses."""
+    host = (url.host or "").strip("[]").rstrip(".").lower()
+    if host in allowed_hosts:
+        return False
     if host == "localhost" or host.endswith(".localhost"):
-        raise ValueError("webhook_url must not point to localhost")
+        return True
     try:
-        address = ipaddress.ip_address(host)
+        return not ipaddress.ip_address(host).is_global
     except ValueError:
-        return url
-    if not address.is_global:
-        raise ValueError("webhook_url must not point to a non-public address")
-    return url
+        return False
 
 
 class CreatePaymentIn(BaseModel):
@@ -59,7 +59,7 @@ class CreatePaymentIn(BaseModel):
     currency: Currency
     description: Annotated[str, Field(min_length=1, max_length=1000), AfterValidator(_reject_nul)]
     metadata: Annotated[dict[str, Any], AfterValidator(_reject_nul)] = Field(default_factory=dict)
-    webhook_url: Annotated[HttpUrl, AfterValidator(_reject_internal_host)]
+    webhook_url: HttpUrl
 
     def to_request(self) -> PaymentRequest:
         return PaymentRequest(

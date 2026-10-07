@@ -38,7 +38,7 @@ class APITest(unittest.TestCase):
 
     def setUp(self):
         self.repository = InMemoryPaymentRepository()
-        container = punq.Container()
+        container = self.container = punq.Container()
         container.register(Config, instance=Config(database_url="", rabbitmq_url="", api_key=API_KEY))
         container.register(PaymentLookup, instance=PaymentLookup(self.repository))
         container.register(PaymentCreation, instance=PaymentCreation(self.repository))
@@ -211,6 +211,7 @@ class APITest(unittest.TestCase):
         """Refused before anything is charged; the consumer still checks the resolved address before sending."""
         for url in (
             "http://localhost/hook",
+            "http://localhost./hook",
             "http://api.localhost/hook",
             "http://127.0.0.1/hook",
             "http://10.0.0.5/hook",
@@ -223,3 +224,12 @@ class APITest(unittest.TestCase):
 
     def test_public_ip_webhook_url_is_accepted(self):
         self.assertEqual(self.create(body=BODY | {"webhook_url": "http://93.184.216.34/hook"}).status_code, 202)
+
+    def test_allowed_internal_webhook_host_is_accepted(self):
+        """The api honours WEBHOOK_ALLOWED_HOSTS like the consumer does, so both sides agree on the same hosts."""
+        config = Config(
+            database_url="", rabbitmq_url="", api_key=API_KEY, webhook_allowed_hosts=frozenset({"10.0.0.5"})
+        )
+        self.container.register(Config, instance=config)
+
+        self.assertEqual(self.create(body=BODY | {"webhook_url": "http://10.0.0.5/hook"}).status_code, 202)
