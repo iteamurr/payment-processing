@@ -63,6 +63,7 @@ class PaymentCreatedHandler:
                 headers=attempt.next_headers(message.headers),
                 persist=True,
                 message_id=message.message_id,
+                message_type=message.raw_message.type,
                 content_type=message.content_type,
                 timeout=self.publish_timeout_s,
             )

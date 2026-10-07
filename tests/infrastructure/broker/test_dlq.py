@@ -28,6 +28,7 @@ class ReplayDeadLettersTest(unittest.IsolatedAsyncioTestCase):
             queue=PAYMENTS_NEW_DLQ.name,
             headers={"x-attempt": 3, "x-first-death-reason": "expired", "trace": "t1"},
             message_id="m1",
+            message_type="payment.created",
             content_type="application/json",
         )
 
@@ -46,6 +47,7 @@ class ReplayDeadLettersTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(json.loads(message.body), body)
             self.assertEqual(message.headers, {"trace": "t1"})
             self.assertEqual(message.message_id, "m1")
+            self.assertEqual(message.type, "payment.created")
 
     async def test_empty_dlq_replays_nothing(self):
         self.assertEqual(await replay_dead_letters(self.broker), 0)

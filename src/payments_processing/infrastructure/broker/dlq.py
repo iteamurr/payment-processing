@@ -28,6 +28,7 @@ async def replay_dead_letters(broker: RabbitBroker, timeout_s: float = 10.0) -> 
             headers=_without_broker_headers(message.headers),
             persist=True,
             message_id=message.message_id,
+            message_type=message.type,
             content_type=message.content_type,
             timeout=timeout_s,
         )

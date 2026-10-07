@@ -18,6 +18,7 @@ def message(body: bytes | None = None, headers: dict | None = None) -> Mock:
     msg.headers = headers or {}
     msg.message_id = "m1"
     msg.content_type = "application/json"
+    msg.raw_message = Mock(type="payment.created")
     msg.ack = AsyncMock()
     msg.reject = AsyncMock()
     return msg
@@ -58,6 +59,7 @@ class PaymentCreatedHandlerTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(kwargs["headers"], {"trace": "t1", "x-attempt": next_attempt})
                 self.assertTrue(kwargs["persist"])
                 self.assertEqual(kwargs["message_id"], "m1")
+                self.assertEqual(kwargs["message_type"], "payment.created")
                 msg.ack.assert_awaited_once()
                 msg.reject.assert_not_awaited()
 
