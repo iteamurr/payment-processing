@@ -238,7 +238,7 @@ def retry_and_dlq() -> None:
     check("webhook attempted exactly 3 times", len(calls) == 3, f"{len(calls)} calls")
     if len(calls) == 3:
         gaps = [(calls[i + 1][0] - calls[i][0]).total_seconds() for i in range(2)]
-        check("gaps ≈ 5 s then ≈ 30 s", 4.5 <= gaps[0] <= 7 and 29 <= gaps[1] <= 33, f"{gaps[0]:.2f}s, {gaps[1]:.2f}s")
+        check("gaps ≈ 5 s then ≈ 25 s", 4.5 <= gaps[0] <= 7 and 24 <= gaps[1] <= 28, f"{gaps[0]:.2f}s, {gaps[1]:.2f}s")
     stored = get(payment_id)[1]
     check("payment status stored despite webhook failures", stored["status"] in ("succeeded", "failed"))
     dlq_after = wait(lambda: (n := queue_messages("payments.new.dlq") or 0) > dlq_before and n, 15)

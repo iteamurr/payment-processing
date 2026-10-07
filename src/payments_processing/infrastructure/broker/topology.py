@@ -3,7 +3,10 @@ from __future__ import annotations
 from faststream.rabbit import ExchangeType, QueueType, RabbitBroker, RabbitExchange, RabbitQueue
 from faststream.rabbit.schemas.queue import QuorumQueueArgs
 
-_RETRY_DELAYS_MS = (5_000, 30_000)
+_RETRIES = 2
+_FIRST_RETRY_DELAY_MS = 5_000
+_RETRY_BACKOFF_FACTOR = 5
+_RETRY_DELAYS_MS = tuple(_FIRST_RETRY_DELAY_MS * _RETRY_BACKOFF_FACTOR**n for n in range(_RETRIES))
 _DELIVERY_LIMIT = 5
 
 
