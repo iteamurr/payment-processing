@@ -3,7 +3,7 @@ import logging
 import sys
 import unittest
 
-from payments_processing.project.logging import JsonFormatter
+from payments_processing.project.logging import JsonFormatter, configure_logging
 
 
 class JsonFormatterTest(unittest.TestCase):
@@ -26,3 +26,30 @@ class JsonFormatterTest(unittest.TestCase):
         payload = json.loads(JsonFormatter().format(record))
 
         self.assertIn("ValueError: boom", payload["exc_info"])
+
+
+class ConfigureLoggingTest(unittest.TestCase):
+    def setUp(self):
+        root = logging.getLogger()
+        saved = (root.handlers[:], root.level)
+        self.addCleanup(lambda: (setattr(root, "handlers", saved[0]), root.setLevel(saved[1])))
+
+    def test_uvicorn_and_faststream_loggers_go_through_the_root_json_handler(self):
+        """uvicorn's dictConfig and FastStream's import give these loggers their own plain-text handlers."""
+        library_loggers = [
+            logging.getLogger(name) for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "faststream")
+        ]
+        for logger in library_loggers:
+            self.addCleanup(setattr, logger, "handlers", logger.handlers[:])
+            self.addCleanup(setattr, logger, "propagate", logger.propagate)
+            logger.handlers = [logging.StreamHandler()]
+            logger.propagate = False
+
+        configure_logging()
+
+        [handler] = logging.getLogger().handlers
+        self.assertIsInstance(handler.formatter, JsonFormatter)
+        for logger in library_loggers:
+            with self.subTest(logger=logger.name):
+                self.assertEqual(logger.handlers, [])
+                self.assertTrue(logger.propagate)

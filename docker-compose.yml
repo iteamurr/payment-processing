@@ -2,10 +2,9 @@ x-app: &app
   build:
     context: .
     dockerfile: deployment/docker/Dockerfile
-  environment:
+  environment: &app-env
     DATABASE_URL: postgresql+asyncpg://payments:payments@postgres:5432/payments
     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
-    API_KEY: dev-api-key
 
 services:
   postgres:
@@ -36,6 +35,9 @@ services:
   api:
     <<: *app
     restart: unless-stopped
+    environment:
+      <<: *app-env
+      API_KEY: dev-api-key
     command: >-
       sh -c "alembic upgrade head
       && uvicorn payments_processing.presentation.api.app:build_app --factory --host 0.0.0.0 --port 8000"

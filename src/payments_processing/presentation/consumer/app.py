@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 from faststream import AckPolicy, FastStream
 from faststream.rabbit import RabbitBroker
@@ -6,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from payments_processing.infrastructure.broker.topology import PAYMENTS_EXCHANGE, PAYMENTS_NEW, declare_topology
 from payments_processing.presentation.consumer.handler import PaymentCreatedHandler
-from payments_processing.project.container import get_container
+from payments_processing.project.container import get_consumer_container
 from payments_processing.project.logging import configure_logging
 
 
@@ -20,7 +22,7 @@ def subscribe(broker: RabbitBroker, handler: PaymentCreatedHandler) -> None:
 
 def build_consumer() -> FastStream:
     configure_logging()
-    container = get_container()
+    container = get_consumer_container()
     broker = container.resolve(RabbitBroker)
     subscribe(broker, container.resolve(PaymentCreatedHandler))
 
@@ -33,4 +35,4 @@ def build_consumer() -> FastStream:
         await container.resolve(httpx.AsyncClient).aclose()
         await container.resolve(AsyncEngine).dispose()
 
-    return FastStream(broker, on_startup=[declare], after_shutdown=[close])
+    return FastStream(broker, logger=logging.getLogger(__name__), on_startup=[declare], after_shutdown=[close])

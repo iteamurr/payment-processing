@@ -9,8 +9,8 @@ from typing import ClassVar
 from faststream.rabbit import RabbitBroker, RabbitMessage
 
 from payments_processing.application.payments.payment_processing import PaymentProcessing
-from payments_processing.domain.entities.outbox_event import PaymentCreated
 from payments_processing.domain.errors import PaymentNotFoundError
+from payments_processing.domain.messages import PaymentCreated
 from payments_processing.infrastructure.broker.retry import Attempt
 
 

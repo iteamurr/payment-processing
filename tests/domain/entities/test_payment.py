@@ -57,6 +57,16 @@ class PaymentTest(unittest.TestCase):
         self.assertIsNotNone(payment.created_at.tzinfo)
         self.assertIsNone(payment.processed_at)
 
+    def test_build_does_not_share_metadata_with_the_request(self):
+        """PaymentRequest is frozen but its dict is not; the payment must not change when the caller's dict does."""
+        request = payment_request(metadata={"order": {"id": 1}})
+        payment = Payment.build(request, "key-1")
+
+        request.metadata["order"]["id"] = 2
+        request.metadata["extra"] = True
+
+        self.assertEqual(payment.metadata, {"order": {"id": 1}})
+
     def test_pending_payment_completes_to_either_final_status(self):
         processed_at = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
         for status in (PaymentStatus.SUCCEEDED, PaymentStatus.FAILED):

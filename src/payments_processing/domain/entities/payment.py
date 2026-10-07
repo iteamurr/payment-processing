@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import uuid
@@ -64,7 +65,7 @@ class Payment:
             id=uuid.uuid4(),
             money=request.money,
             description=request.description,
-            metadata=request.metadata,
+            metadata=copy.deepcopy(request.metadata),
             webhook_url=request.webhook_url,
             idempotency_key=idempotency_key,
             request_hash=request.fingerprint(),

@@ -2,9 +2,9 @@ import unittest
 from decimal import Decimal
 
 from payments_processing.application.payments.payment_creation import PaymentCreation
-from payments_processing.domain.entities.outbox_event import PAYMENT_CREATED
 from payments_processing.domain.entities.payment import PaymentStatus
 from payments_processing.domain.errors import IdempotencyConflictError
+from payments_processing.domain.messages import PAYMENT_CREATED
 from tests.mocks import InMemoryPaymentRepository, payment_request
 
 

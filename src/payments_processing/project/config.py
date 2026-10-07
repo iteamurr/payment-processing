@@ -10,7 +10,7 @@ class Config:
 
     database_url: str = field(repr=False)
     rabbitmq_url: str = field(repr=False)
-    api_key: str = field(repr=False)
+    api_key: str = field(default="", repr=False)
     outbox_poll_interval_s: float = 1.0
     outbox_batch_size: int = 100
     webhook_timeout_s: float = 10.0

@@ -19,8 +19,15 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+_LIBRARY_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "faststream")
+
+
 def configure_logging() -> None:
-    """Routes root logging through JsonFormatter at INFO."""
+    """Routes all logging, including uvicorn's and FastStream's own loggers, through one JSON handler at INFO."""
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter())
-    logging.basicConfig(level=logging.INFO, handlers=[handler])
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+    for name in _LIBRARY_LOGGERS:
+        logger = logging.getLogger(name)
+        logger.handlers.clear()
+        logger.propagate = True

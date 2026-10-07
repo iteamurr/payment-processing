@@ -12,6 +12,7 @@ from payments_processing.presentation.api.common.errors import (
     IdempotencyKeyReused,
     InvalidApiKey,
     PaymentNotFound,
+    RequestTooLarge,
     responses,
 )
 from payments_processing.presentation.api.deps import resolve_depends
@@ -30,7 +31,7 @@ router = APIRouter(
     operation_id="create_payment",
     status_code=202,
     response_model=PaymentAcceptedOut,
-    responses=responses(IdempotencyKeyReused),
+    responses=responses(IdempotencyKeyReused, RequestTooLarge),
 )
 async def create_payment(
     body: CreatePaymentIn,

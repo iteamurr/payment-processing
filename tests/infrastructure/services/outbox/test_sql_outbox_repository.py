@@ -1,7 +1,8 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from payments_processing.domain.entities.outbox_event import PAYMENT_CREATED, OutboxEvent
+from payments_processing.domain.entities.outbox_event import OutboxEvent
+from payments_processing.domain.messages import PAYMENT_CREATED
 from payments_processing.infrastructure.db.models import OutboxRow
 from payments_processing.infrastructure.services.outbox.sql_outbox_repository import SqlOutboxRepository
 from tests.live_services import DatabaseTestCase

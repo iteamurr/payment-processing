@@ -32,6 +32,14 @@ class IdempotencyKeyReused(ApiError):
     description = "Idempotency-Key reused with a different body"
 
 
+MAX_BODY_BYTES = 64 * 1024
+
+
+class RequestTooLarge(ApiError):
+    code = 413
+    description = f"Request body is larger than {MAX_BODY_BYTES // 1024} KiB"
+
+
 def responses(*errors: type[ApiError]) -> dict[int | str, dict[str, Any]]:
     """OpenAPI `responses` for the errors a route or router can raise."""
     return {error.code: {"model": ErrorOut, "description": error.description} for error in errors}

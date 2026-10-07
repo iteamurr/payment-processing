@@ -40,7 +40,7 @@ class APITest(unittest.TestCase):
         container.register(Config, instance=Config(database_url="", rabbitmq_url="", api_key=API_KEY))
         container.register(PaymentLookup, instance=PaymentLookup(self.repository))
         container.register(PaymentCreation, instance=PaymentCreation(self.repository))
-        patcher = patch.object(deps, "get_container", return_value=container)
+        patcher = patch.object(deps, "get_api_container", return_value=container)
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = TestClient(build_app())
@@ -178,3 +178,14 @@ class APITest(unittest.TestCase):
                 self.assertTrue(
                     documented[status]["content"]["application/json"]["schema"]["$ref"].endswith("/ErrorOut")
                 )
+
+    def test_oversized_body_returns_413_before_validation(self):
+        """FastAPI buffers the whole body before validating it; the limit keeps a huge metadata out of memory."""
+        response = self.create(body=BODY | {"metadata": {"blob": "x" * 70_000}})
+
+        self.assertEqual(response.status_code, 413)
+        self.assertEqual(response.json(), {"detail": "Request body is larger than 64 KiB"})
+        self.assertEqual(self.repository.payments, {})
+
+    def test_body_under_the_limit_is_accepted(self):
+        self.assertEqual(self.create(body=BODY | {"metadata": {"blob": "x" * 60_000}}).status_code, 202)

@@ -175,7 +175,10 @@ DLQ: создайте платёж с `"webhook_url": "http://webhook-echo:9000/
 make lint        # ruff
 make typecheck   # pyright: strict для src и migrations
 make test        # unit-тесты; тесты с БД и брокером пропускаются
+make e2e         # сквозной сценарий через HTTP против compose-стека
 ```
+
+`make e2e` поднимает стек и проверяет его только через внешние интерфейсы (HTTP API, логи `webhook-echo`, RabbitMQ management API, Postgres): авторизацию, валидацию, полный путь до webhook, идемпотентность (включая 10 параллельных запросов), retry с задержками 2 и 4 с, DLQ и `dlq-replay`, пачку из 20 платежей, остановку consumer и RabbitMQ. По ходу перезапускает consumer и RabbitMQ, в конце возвращает стек в рабочее состояние.
 
 С Postgres и RabbitMQ. `api` и `consumer` должны быть остановлены, иначе они заберут outbox-записи и сообщения тестов. Тесты очищают таблицы и очереди dev-окружения:
 

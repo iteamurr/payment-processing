@@ -9,13 +9,13 @@ import logging
 from faststream.rabbit import RabbitBroker
 
 from payments_processing.infrastructure.broker.dlq import replay_dead_letters
-from payments_processing.project.container import get_container
+from payments_processing.project.container import get_consumer_container
 from payments_processing.project.logging import configure_logging
 
 
 async def main() -> None:
     configure_logging()
-    broker = get_container().resolve(RabbitBroker)
+    broker = get_consumer_container().resolve(RabbitBroker)
     await broker.connect()
     try:
         replayed = await replay_dead_letters(broker)

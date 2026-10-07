@@ -1,4 +1,4 @@
-.PHONY: help lint fix typecheck test dlq-replay
+.PHONY: help lint fix typecheck test e2e dlq-replay
 .DEFAULT_GOAL := help
 
 help: ## Show this help
@@ -16,6 +16,10 @@ typecheck: ## Run pyright (strict for src and migrations)
 
 test: ## Run all tests (DB/broker tests skip without DATABASE_URL / RABBITMQ_URL)
 	poetry run python -m unittest discover
+
+e2e: ## End-to-end scenario over HTTP against the compose stack (restarts consumer and rabbitmq)
+	docker compose up --build -d --wait
+	poetry run python tools/e2e.py
 
 dlq-replay: ## Move payments.new.dlq messages back to payments.new (compose stack must be running)
 	docker compose exec consumer python -m payments_processing.presentation.cli.replay_dlq

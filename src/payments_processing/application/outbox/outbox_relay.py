@@ -21,7 +21,9 @@ class OutboxRelay:
     _logger: ClassVar[logging.Logger] = logging.getLogger(__name__)
 
     async def publish_pending(self) -> int:
-        """Publishes one batch in order and stops at the first failure; events published before it stay published."""
+        """Publishes one batch in order and stops at the first failure; events published before it stay published.
+
+        Stopping early also bounds the outbox transaction: a broken broker holds it for one publish timeout."""
         async with self.outbox.lock_pending(self.batch_size) as batch:
             for event in batch.events:
                 try:

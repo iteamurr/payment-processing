@@ -3,7 +3,7 @@ from functools import lru_cache
 import httpx
 import punq
 from faststream.rabbit import RabbitBroker
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from payments_processing.application.outbox.outbox_relay import OutboxRelay
 from payments_processing.application.payments.payment_creation import PaymentCreation
@@ -26,23 +26,22 @@ from payments_processing.project.config import Config
 
 
 @lru_cache(1)
-def get_container() -> punq.Container:
+def get_api_container() -> punq.Container:
     """Cached so the app factory and resolve_depends() share the same container and singletons."""
-    return build_container(Config.from_env())
+    return build_api_container(Config.from_env())
 
 
-def build_container(config: Config) -> punq.Container:
-    """Composition root — wires domain services to infrastructure implementations."""
-    container = punq.Container()
-    container.register(Config, instance=config)
+@lru_cache(1)
+def get_consumer_container() -> punq.Container:
+    return build_consumer_container(Config.from_env())
 
-    engine = build_engine(config.database_url)
-    sessions = build_sessionmaker(engine)
-    container.register(AsyncEngine, instance=engine)
-    container.register(PaymentRepository, instance=SqlPaymentRepository(sessions))
+
+def build_api_container(config: Config) -> punq.Container:
+    """api process: payment creation and lookup over HTTP, plus the outbox relay."""
+    if not config.api_key:
+        raise RuntimeError("environment variable API_KEY is required by the api")
+    container, sessions = _build_shared(config)
     container.register(OutboxRepository, instance=SqlOutboxRepository(sessions))
-
-    container.register(RabbitBroker, instance=build_broker(config.rabbitmq_url, config.consumer_prefetch_count))
     container.register(EventPublisher, RabbitEventPublisher, scope=punq.Scope.singleton)
     container.register(
         OutboxRelay,
@@ -52,10 +51,28 @@ def build_container(config: Config) -> punq.Container:
     )
     container.register(PaymentCreation, scope=punq.Scope.singleton)
     container.register(PaymentLookup, scope=punq.Scope.singleton)
+    return container
 
+
+def build_consumer_container(config: Config) -> punq.Container:
+    """consumer process: charging, status updates, webhooks and retries."""
+    container, _ = _build_shared(config)
+    container.register(PaymentLookup, scope=punq.Scope.singleton)
     container.register(httpx.AsyncClient, instance=httpx.AsyncClient())
     container.register(WebhookSender, HttpWebhookSender, scope=punq.Scope.singleton, timeout_s=config.webhook_timeout_s)
     container.register(PaymentGateway, instance=FakePaymentGateway())
     container.register(PaymentProcessing, scope=punq.Scope.singleton)
     container.register(PaymentCreatedHandler, scope=punq.Scope.singleton)
     return container
+
+
+def _build_shared(config: Config) -> tuple[punq.Container, async_sessionmaker[AsyncSession]]:
+    """Composition root shared by both processes: config, Postgres and the broker client."""
+    container = punq.Container()
+    container.register(Config, instance=config)
+    engine = build_engine(config.database_url)
+    sessions = build_sessionmaker(engine)
+    container.register(AsyncEngine, instance=engine)
+    container.register(PaymentRepository, instance=SqlPaymentRepository(sessions))
+    container.register(RabbitBroker, instance=build_broker(config.rabbitmq_url, config.consumer_prefetch_count))
+    return container, sessions
